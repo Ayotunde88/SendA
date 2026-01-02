@@ -1,2 +1,4 @@
-import ReferralScreen from "../components/src/screens/ReferralScreen";
-export default ReferralScreen;
+import PlaceholderScreen from "../components/src/screens/PlaceholderScreen";
+export default function Screen() {
+  return <PlaceholderScreen title="Referral" />;
+}

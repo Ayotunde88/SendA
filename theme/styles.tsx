@@ -2012,6 +2012,195 @@ fxFooterText: {
   color: "rgba(0,0,0,0.40)",
 },
 
+notifHeader: {
+  flexDirection: "row",
+  alignItems: "center",
+  paddingHorizontal: 16,
+  paddingTop: 6,
+  paddingBottom: 10,
+},
+
+notifHeaderTitle: {
+  flex: 1,
+  textAlign: "center",
+  fontSize: 18,
+  fontWeight: "900",
+  color: "#1E1E1E",
+  marginRight: 44, // balances right action width
+},
+
+notifHeaderAction: {
+  paddingHorizontal: 10,
+  paddingVertical: 8,
+  borderRadius: 999,
+  backgroundColor: "rgba(25,149,95,0.10)",
+},
+
+notifHeaderActionText: {
+  color: "#19955f",
+  fontWeight: "900",
+  fontSize: 12,
+},
+
+notifFiltersRow: {
+  flexDirection: "row",
+  paddingHorizontal: 16,
+  marginTop: 6,
+},
+
+notifFilterPill: {
+  paddingHorizontal: 14,
+  paddingVertical: 10,
+  borderRadius: 999,
+  backgroundColor: "rgba(0,0,0,0.06)",
+  marginRight: 10,
+},
+
+notifFilterPillActive: {
+  backgroundColor: "#1E1E1E",
+},
+
+notifFilterText: {
+  fontSize: 13,
+  fontWeight: "900",
+  color: "rgba(0,0,0,0.55)",
+},
+
+notifFilterTextActive: {
+  color: "#fff",
+},
+
+notifSectionTitle: {
+  paddingHorizontal: 16,
+  fontSize: 12,
+  fontWeight: "900",
+  color: "rgba(0,0,0,0.45)",
+  marginBottom: 8,
+},
+
+notifCard: {
+  backgroundColor: "#fff",
+  marginHorizontal: 16,
+  borderRadius: 16,
+  borderWidth: 1,
+  borderColor: "rgba(0,0,0,0.06)",
+  overflow: "hidden",
+},
+
+notifRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "space-between",
+  paddingHorizontal: 14,
+  paddingVertical: 14,
+},
+
+notifLeft: {
+  flexDirection: "row",
+  alignItems: "center",
+  flex: 1,
+},
+
+notifIconWrap: {
+  width: 42,
+  height: 42,
+  borderRadius: 12,
+  alignItems: "center",
+  justifyContent: "center",
+  marginRight: 12,
+  backgroundColor: "rgba(0,0,0,0.06)",
+},
+
+notifIconSuccess: {
+  backgroundColor: "rgba(25,149,95,0.12)",
+},
+
+notifIconWarning: {
+  backgroundColor: "rgba(255,193,7,0.18)",
+},
+
+notifIconInfo: {
+  backgroundColor: "rgba(13,110,253,0.12)",
+},
+
+notifIconText: {
+  fontSize: 18,
+},
+
+notifTitleRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "space-between",
+  marginRight: 10,
+},
+
+notifTitle: {
+  fontSize: 14,
+  fontWeight: "900",
+  color: "#1E1E1E",
+  flex: 1,
+  paddingRight: 10,
+},
+
+notifTitleUnread: {
+  color: "#000",
+},
+
+notifUnreadDot: {
+  width: 8,
+  height: 8,
+  borderRadius: 999,
+  backgroundColor: "#19955f",
+},
+
+notifBody: {
+  marginTop: 4,
+  fontSize: 12,
+  fontWeight: "700",
+  color: "rgba(0,0,0,0.50)",
+},
+
+notifTime: {
+  marginTop: 6,
+  fontSize: 11,
+  fontWeight: "700",
+  color: "rgba(0,0,0,0.35)",
+},
+
+notifChevron: {
+  fontSize: 22,
+  color: "rgba(0,0,0,0.25)",
+  marginLeft: 10,
+},
+
+notifDivider: {
+  height: 1,
+  backgroundColor: "rgba(0,0,0,0.07)",
+  marginLeft: 68, // align after icon
+},
+
+notifEmpty: {
+  paddingTop: 80,
+  alignItems: "center",
+  paddingHorizontal: 30,
+},
+
+notifEmptyTitle: {
+  marginTop: 12,
+  fontSize: 18,
+  fontWeight: "900",
+  color: "#1E1E1E",
+},
+
+notifEmptySub: {
+  marginTop: 8,
+  fontSize: 13,
+  fontWeight: "700",
+  textAlign: "center",
+  color: "rgba(0,0,0,0.45)",
+},
+
+
 });
 
 

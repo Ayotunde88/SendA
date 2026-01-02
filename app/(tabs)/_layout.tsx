@@ -1,28 +1,25 @@
 import React from "react";
 import { Tabs } from "expo-router";
-import { View, Text } from "react-native";
+import { View } from "react-native";
 import { COLORS } from "../../theme/colors";
 import { styles } from "../../theme/styles";
-import { Stack } from "expo-router";
-import { useFonts, Inter_400Regular, Inter_600SemiBold } from "@expo-google-fonts/inter";
+import { FontAwesome6, Ionicons } from "@expo/vector-icons";
 
-interface TabIconProps {
-  label: string;
+interface TabBarIconProps {
+  name: string;
   focused: boolean;
+  lib?: "fa" | "ion";
 }
-function TabIcon({ label, focused }: TabIconProps) {
 
-  const [fontsLoaded] = useFonts({
-    Inter_400Regular,
-    Inter_600SemiBold,
-  });
+function TabBarIcon({ name, focused, lib = "fa" }: TabBarIconProps) {
+  const color = focused ? COLORS.green : "#A3A3A3";
+  const size = 22;
 
-  if (!fontsLoaded) return null;
-  return (
-    <View style={[styles.tabIconDot, focused && { backgroundColor: COLORS.greenSoft }]}>
-      <Text style={[styles.tabIconText, focused && { color: COLORS.green }]}>{label}</Text>
-    </View>
-  );
+  if (lib === "ion") {
+    return <Ionicons name={name} size={size} color={color} />;
+  }
+
+  return <FontAwesome6 name={name} size={size} color={color} />;
 }
 
 export default function TabsLayout() {
@@ -36,34 +33,38 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: "#A3A3A3",
       }}
     >
+      {/* Home */}
       <Tabs.Screen
         name="index"
         options={{
           title: "Home",
-          tabBarIcon: ({ focused }) => <TabIcon label="⌂" focused={focused} />,
+          tabBarIcon: ({ focused }) => (
+            <TabBarIcon name="house" focused={focused} />
+          ),
         }}
       />
+
+      {/* Transactions */}
       <Tabs.Screen
         name="transactions"
         options={{
           title: "Transactions",
-          tabBarIcon: ({ focused }) => <TabIcon label="⟂" focused={focused} />,
+          tabBarIcon: ({ focused }) => (
+            <TabBarIcon name="arrow-right-arrow-left" focused={focused} />
+          ),
         }}
       />
+
+      {/* Notification */}
       <Tabs.Screen
-        name="referral"
+        name="notification"
         options={{
-          title: "Referral",
-          tabBarIcon: ({ focused }) => <TabIcon label="🎁" focused={focused} />,
+          title: "Notifications",
+          tabBarIcon: ({ focused }) => (
+            <TabBarIcon name="bell" focused={focused} />
+          ),
         }}
       />
-      {/* <Tabs.Screen
-        name="help"
-        options={{
-          title: "Help",
-          tabBarIcon: ({ focused }) => <TabIcon label="?" focused={focused} />,
-        }}
-      /> */}
     </Tabs>
   );
 }
