@@ -3,6 +3,7 @@ import { View, Text, Pressable, Image } from "react-native";
 import { useRouter } from "expo-router";
 import { styles } from "../../../theme/styles";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 interface MenuRowProps {
   iconBg: string;
@@ -56,93 +57,95 @@ export default function ProfileScreen() {
 
 
   return (
-    <View style={styles.shell}>
-      {/* top back */}
-      <View style={styles.profileTopBar}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backIcon}>←</Text>
-        </Pressable>
-      </View>
-
-      {/* banner */}
-      <View style={styles.banner}>
-        {/* You can replace this with a real banner image */}
-        <View style={styles.bannerArt} />
-      </View>
-
-      {/* avatar + name */}
-      <View style={styles.profileHeader}>
-        <View style={styles.avatarWrap}>
-          <View style={styles.avatarCircle}>
-            <Text style={{ fontSize: 26 }}>🙂</Text>
-          </View>
-          <View style={styles.avatarPlus}>
-            <Text style={{ fontWeight: "900" }}>＋</Text>
-          </View>
+    <SafeAreaView style={{ flex: 1 }}>
+        <View style={styles.shell}>
+        {/* top back */}
+        <View style={styles.profileTopBar}>
+            <Pressable onPress={() => router.back()} style={styles.backBtn}>
+            <Text style={styles.backIcon}>←</Text>
+            </Pressable>
         </View>
 
-        <View style={{ alignItems: "center" }}>
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <Text style={styles.profileName}>Ayotunde Balogun</Text>
-            <Text style={styles.greenCheck}> ✓</Text>
-          </View>
-          <Text style={styles.profileEmail}>ayotundebalogun2@gmail.com</Text>
+        {/* banner */}
+        <View style={styles.banner}>
+            {/* You can replace this with a real banner image */}
+            <View style={styles.bannerArt} />
         </View>
-      </View>
 
-      {/* menu */}
-      <MenuRow
-        iconBg="#EFE7DD"
-        icon="👤"
-        title="Account information"
-        subtitle="Information about your account"
-        // onPress={() => router.push("/account-info")}
-      />
+        {/* avatar + name */}
+        <View style={styles.profileHeader}>
+            <View style={styles.avatarWrap}>
+            <View style={styles.avatarCircle}>
+                <Text style={{ fontSize: 26 }}>🙂</Text>
+            </View>
+            <View style={styles.avatarPlus}>
+                <Text style={{ fontWeight: "900" }}>＋</Text>
+            </View>
+            </View>
 
-      <MenuRow
-        iconBg="#F4F1D7"
-        icon="🎧"
-        title="Help and support"
-        subtitle="Need help? We’ve got you."
-        // onPress={() => router.push("/help-support")}
-      />
+            <View style={{ alignItems: "center" }}>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Text style={styles.profileName}>Ayotunde Balogun</Text>
+                <Text style={styles.greenCheck}> ✓</Text>
+            </View>
+            <Text style={styles.profileEmail}>ayotundebalogun2@gmail.com</Text>
+            </View>
+        </View>
 
-      <MenuRow
-        iconBg="#EAEAEA"
-        icon="🔒"
-        title="Security and privacy"
-        subtitle="Keep your account safe"
-        onPress={() => router.push("/securityprivacy")}
-      />
+        {/* menu */}
+        <MenuRow
+            iconBg="#EFE7DD"
+            icon="👤"
+            title="Account information"
+            subtitle="Information about your account"
+            // onPress={() => router.push("/account-info")}
+        />
 
-      <MenuRow
-        iconBg="#DDF2E6"
-        icon="🔔"
-        title="Notification preferences"
-        subtitle="Manage your notifications and messages"
-        // onPress={() => router.push("/notifications")}
-      />
+        <MenuRow
+            iconBg="#F4F1D7"
+            icon="🎧"
+            title="Help and support"
+            subtitle="Need help? We’ve got you."
+            // onPress={() => router.push("/help-support")}
+        />
 
-      <MenuRow
-        iconBg="#E6DDF2"
-        icon="🏢"
-        title="About"
-        subtitle="Information about LemFi"
-        // onPress={() => router.push("/about")}
-      />
+        <MenuRow
+            iconBg="#EAEAEA"
+            icon="🔒"
+            title="Security and privacy"
+            subtitle="Keep your account safe"
+            onPress={() => router.push("/securityprivacy")}
+        />
 
-      <MenuRow
-        iconBg="#F0F0F0"
-        icon="🚫"
-        title="Log out"
-        subtitle=""
-        color="#E24A4A"
-        onPress={logout}
-      />
+        <MenuRow
+            iconBg="#DDF2E6"
+            icon="🔔"
+            title="Notification preferences"
+            subtitle="Manage your notifications and messages"
+            // onPress={() => router.push("/notifications")}
+        />
 
-      <View style={{ flex: 1 }} />
+        <MenuRow
+            iconBg="#E6DDF2"
+            icon="🏢"
+            title="About"
+            subtitle="Information about LemFi"
+            // onPress={() => router.push("/about")}
+        />
 
-      <Text style={styles.versionText}>Version 5.15.0</Text>
-    </View>
+        <MenuRow
+            iconBg="#F0F0F0"
+            icon="🚫"
+            title="Log out"
+            subtitle=""
+            color="#E24A4A"
+            onPress={logout}
+        />
+
+        <View style={{ flex: 1 }} />
+
+        <Text style={styles.versionText}>Version 5.15.0</Text>
+        </View>
+    </SafeAreaView>
   );
 }

@@ -96,7 +96,7 @@ slide: {
   primaryBtn: {
     width: "100%",
     // height: 56,
-    paddingVertical: 16,
+    paddingVertical: 11,
     borderRadius: 999,
     backgroundColor: "#3c3b3bff",
     alignItems: "center",
@@ -174,7 +174,7 @@ slide: {
     width: "100%",
     borderWidth: 2,
     borderColor: COLORS.green,
-    paddingVertical: 12,
+    paddingVertical: 9,
     borderRadius: 999,
     justifyContent: "center",
     alignItems: "center",
@@ -2200,6 +2200,108 @@ notifEmptySub: {
   color: "rgba(0,0,0,0.45)",
 },
 
+resultHeader: {
+  flexDirection: "row",
+  alignItems: "center",
+  paddingHorizontal: 16,
+  paddingTop: 6,
+  paddingBottom: 10,
+},
+
+resultWrap: {
+  flex: 1,
+  paddingHorizontal: 16,
+  justifyContent: "center",
+  paddingBottom: 24,
+},
+
+resultCard: {
+  borderRadius: 22,
+  paddingHorizontal: 18,
+  paddingTop: 22,
+  paddingBottom: 18,
+  borderWidth: 1,
+  borderColor: "rgba(0,0,0,0.06)",
+},
+
+resultIconRing: {
+  width: 92,
+  height: 92,
+  borderRadius: 46,
+  alignSelf: "center",
+  alignItems: "center",
+  justifyContent: "center",
+  marginBottom: 14,
+},
+
+resultIconInner: {
+  width: 74,
+  height: 74,
+  borderRadius: 37,
+  backgroundColor: "#fff",
+  alignItems: "center",
+  justifyContent: "center",
+  borderWidth: 8,
+},
+
+resultTitle: {
+  fontSize: 22,
+  fontWeight: "900",
+  color: "#1E1E1E",
+  textAlign: "center",
+  marginTop: 2,
+},
+
+resultSubtitle: {
+  fontSize: 13,
+  fontWeight: "700",
+  color: "rgba(0,0,0,0.55)",
+  textAlign: "center",
+  marginTop: 8,
+  lineHeight: 18,
+},
+
+resultDetailsBox: {
+  marginTop: 14,
+  padding: 12,
+  borderRadius: 14,
+  backgroundColor: "rgba(255,255,255,0.75)",
+  borderWidth: 1,
+  borderColor: "rgba(0,0,0,0.06)",
+},
+
+resultDetailsText: {
+  fontSize: 12,
+  fontWeight: "700",
+  color: "rgba(0,0,0,0.60)",
+  lineHeight: 18,
+},
+
+resultPrimaryBtn: {
+  marginTop: 16,
+  height: 56,
+  borderRadius: 999,
+  alignItems: "center",
+  justifyContent: "center",
+},
+
+resultPrimaryBtnText: {
+  color: "#fff",
+  fontWeight: "900",
+  fontSize: 16,
+},
+
+resultSecondaryBtn: {
+  marginTop: 14,
+  alignItems: "center",
+  justifyContent: "center",
+  paddingVertical: 10,
+},
+
+resultSecondaryText: {
+  fontWeight: "900",
+  fontSize: 14,
+},
 
 });
 

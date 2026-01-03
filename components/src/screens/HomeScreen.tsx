@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo, useEffect } from "react";
 import { View, Text, Pressable, Alert, RefreshControl, Image, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "expo-router";
@@ -21,6 +21,7 @@ type Country = {
   name: string;
   flag?: string;
   dialCode?: string;
+  symbol?: string;
 };
 
 type UserAccount = {
@@ -47,7 +48,10 @@ type DisplayRate = {
   toFlag: string;
   rate: string;
   change: string;
+  numericRate: number;
 };
+
+const HIDE_BALANCE_KEY = "hide_balance_preference";
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -62,6 +66,54 @@ export default function HomeScreen() {
   const [displayRates, setDisplayRates] = useState<DisplayRate[]>([]);
   const [ratesLoading, setRatesLoading] = useState(true);
 
+  // Home currency from backend (based on user's signup country)
+  const [homeCurrency, setHomeCurrency] = useState<string>("");
+  const [homeCurrencySymbol, setHomeCurrencySymbol] = useState<string>("");
+
+  // Privacy toggle for hiding balances
+  const [hideBalance, setHideBalance] = useState(false);
+
+  // Load hide balance preference on mount
+  useEffect(() => {
+    const loadHideBalancePreference = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(HIDE_BALANCE_KEY);
+        if (stored !== null) {
+          setHideBalance(stored === "true");
+        }
+      } catch (e) {
+        console.log("Failed to load hide balance preference:", e);
+      }
+    };
+    loadHideBalancePreference();
+  }, []);
+
+  // Toggle and persist hide balance preference
+  const toggleHideBalance = useCallback(async () => {
+    const newValue = !hideBalance;
+    setHideBalance(newValue);
+    try {
+      await AsyncStorage.setItem(HIDE_BALANCE_KEY, String(newValue));
+    } catch (e) {
+      console.log("Failed to save hide balance preference:", e);
+    }
+  }, [hideBalance]);
+
+  // Format balance with privacy mask
+  const formatBalance = useCallback(
+    (balance?: number | null) => {
+      if (hideBalance) {
+        return "••••••";
+      }
+      const amount = typeof balance === "number" ? balance : 0;
+      return amount.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+    },
+    [hideBalance]
+  );
+
   const fetchUserData = useCallback(async () => {
     try {
       const phone = await AsyncStorage.getItem("user_phone");
@@ -72,13 +124,16 @@ export default function HomeScreen() {
         setEmail(userInfo.email);
       }
 
-      // 1) Fetch flags from same source as CountryDropdown
+      // 1) Fetch countries/currencies from backend for flags
       let flagsMap: Record<string, string> = {};
+
       try {
-        const countries: Country[] = await getCountries();
-        for (const c of countries || []) {
+        const countriesData: Country[] = await getCountries();
+        for (const c of countriesData || []) {
           const key = (c.code || "").toUpperCase().trim();
-          if (key) flagsMap[key] = c.flag || "";
+          if (key) {
+            flagsMap[key] = c.flag || "";
+          }
         }
         setFlagsByCurrency(flagsMap);
       } catch (e) {
@@ -87,12 +142,20 @@ export default function HomeScreen() {
       }
 
       let userAccounts: UserAccount[] = [];
+      let userHomeCurrency = "";
 
       if (phone) {
-        // 2) Fetch latest profile (KYC)
+        // 2) Fetch latest profile (KYC + home currency from backend)
         const res = await getUserProfile(phone);
         if (res.success && res.user) {
           setKycStatus(res.user.kycStatus);
+
+          // Use backend-provided home currency (already matched to user's signup country)
+          if (res.user.homeCurrency) {
+            userHomeCurrency = res.user.homeCurrency;
+            setHomeCurrency(res.user.homeCurrency);
+            setHomeCurrencySymbol(res.user.homeCurrencySymbol || res.user.homeCurrency);
+          }
         }
 
         // 3) Fetch accounts (+ balances)
@@ -105,13 +168,17 @@ export default function HomeScreen() {
         }
       }
 
-      // 4) Fetch LIVE exchange rates from CurrencyCloud for user's currency pairs
+      // 4) Fetch LIVE exchange rates for user's currency pairs (including home currency)
       setRatesLoading(true);
       try {
-        // Build pairs from user's accounts (e.g., "CAD_NGN,NGN_CAD")
         const currencyCodes = userAccounts
           .map((a) => (a.currencyCode || "").toUpperCase().trim())
           .filter(Boolean);
+
+        // Include home currency in pairs for total balance conversion
+        if (userHomeCurrency && !currencyCodes.includes(userHomeCurrency)) {
+          currencyCodes.push(userHomeCurrency);
+        }
 
         const pairs: string[] = [];
         for (const from of currencyCodes) {
@@ -123,23 +190,24 @@ export default function HomeScreen() {
         }
 
         if (pairs.length > 0) {
-          // Call with source=live and specific pairs
           const ratesRes = await getExchangeRates(pairs.join(","));
 
           if (ratesRes.success && ratesRes.rates) {
-            const formatted: DisplayRate[] = ratesRes.rates.slice(0, 4).map((r: any) => {
+            const formatted: DisplayRate[] = ratesRes.rates.map((r: any) => {
               const from = (r.fromCurrency || r.buy_currency || "").toUpperCase();
               const to = (r.toCurrency || r.sell_currency || "").toUpperCase();
+              const numericRate = parseFloat(r.rate || r.core_rate || 0);
               return {
                 from,
                 to,
                 fromFlag: flagsMap[from] || "",
                 toFlag: flagsMap[to] || "",
-                rate: (r.rate || r.core_rate || 0).toLocaleString("en-US", {
+                rate: numericRate.toLocaleString("en-US", {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 4,
                 }),
                 change: "+0.0%",
+                numericRate,
               };
             });
             setDisplayRates(formatted);
@@ -162,6 +230,40 @@ export default function HomeScreen() {
       setRefreshing(false);
     }
   }, []);
+
+  // Calculate total balance converted to home currency
+  const totalBalance = useMemo(() => {
+    if (!homeCurrency || accounts.length === 0) return 0;
+
+    let total = 0;
+
+    for (const account of accounts) {
+      const balance = typeof account.balance === "number" ? account.balance : 0;
+      const accountCurrency = (account.currencyCode || "").toUpperCase().trim();
+
+      if (accountCurrency === homeCurrency) {
+        total += balance;
+      } else {
+        const directRate = displayRates.find(
+          (r) => r.from === accountCurrency && r.to === homeCurrency
+        );
+
+        if (directRate && directRate.numericRate > 0) {
+          total += balance * directRate.numericRate;
+        } else {
+          const reverseRate = displayRates.find(
+            (r) => r.from === homeCurrency && r.to === accountCurrency
+          );
+
+          if (reverseRate && reverseRate.numericRate > 0) {
+            total += balance / reverseRate.numericRate;
+          }
+        }
+      }
+    }
+
+    return total;
+  }, [accounts, displayRates, homeCurrency]);
 
   useFocusEffect(
     useCallback(() => {
@@ -193,18 +295,18 @@ export default function HomeScreen() {
     );
   };
 
-  const formatBalance = (balance?: number | null) => {
-    const amount = typeof balance === "number" ? balance : 0;
-    return amount.toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  };
-
   const getFlagForCurrency = (currencyCode?: string) => {
     const key = (currencyCode || "").toUpperCase().trim();
     return flagsByCurrency[key] || "";
   };
+
+  // Filter display rates for UI (only show wallet-to-wallet pairs)
+  const visibleRates = useMemo(() => {
+    const walletCurrencies = accounts.map((a) => (a.currencyCode || "").toUpperCase().trim());
+    return displayRates
+      .filter((r) => walletCurrencies.includes(r.from) && walletCurrencies.includes(r.to))
+      .slice(0, 4);
+  }, [displayRates, accounts]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -247,6 +349,25 @@ export default function HomeScreen() {
               <Text style={{ fontSize: 16 }}>👤</Text>
             </Pressable>
 
+            {/* Total Balance - Converted to Home Currency */}
+            <View style={{ marginLeft: 12 }}>
+              <Text style={{ color: "#888", fontSize: 11 }}>
+                Total Balance {homeCurrency ? `(${homeCurrency})` : ""}
+              </Text>
+              {ratesLoading && accounts.length > 0 ? (
+                <ActivityIndicator size="small" color={COLORS.primary} />
+              ) : (
+                <Pressable onPress={toggleHideBalance} style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Text style={{ fontWeight: "700", fontSize: 16, color: "#222" }}>
+                    {hideBalance ? "••••••" : `${homeCurrencySymbol}${formatBalance(totalBalance)}`}
+                  </Text>
+                  <Text style={{ marginLeft: 6, fontSize: 14 }}>
+                    {hideBalance ? "🙈" : "👁️"}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+
             <View style={{ flex: 1 }} />
 
             <Pressable
@@ -263,9 +384,11 @@ export default function HomeScreen() {
           <View style={styles.sectionRow}>
             <Text style={styles.sectionTitle}>My accounts</Text>
             <View style={{ flex: 1 }} />
-            <Pressable style={styles.hideBalanceRow}>
-              <Text style={styles.hideBalanceText}>Hide balance</Text>
-              <Text style={{ marginLeft: 6 }}>👁️</Text>
+            <Pressable style={styles.hideBalanceRow} onPress={toggleHideBalance}>
+              <Text style={styles.hideBalanceText}>
+                {hideBalance ? "Show balance" : "Hide balance"}
+              </Text>
+              <Text style={{ marginLeft: 6 }}>{hideBalance ? "🙈" : "👁️"}</Text>
             </Pressable>
           </View>
 
@@ -331,7 +454,6 @@ export default function HomeScreen() {
                       source={require("../../../assets/images/icons/icons-icon.png")}
                       style={styles.cardCornerImage}
                       resizeMode="contain"
-                      
                     />
                   </LinearGradient>
                 </Pressable>
@@ -407,21 +529,21 @@ export default function HomeScreen() {
               <View style={{ padding: 20, alignItems: "center" }}>
                 <ActivityIndicator size="small" color={COLORS.primary} />
               </View>
-            ) : displayRates.length === 0 ? (
+            ) : visibleRates.length === 0 ? (
               <View style={{ padding: 20, alignItems: "center" }}>
                 <Text style={{ color: "#888", fontSize: 14, textAlign: "center" }}>
                   Add at least two currency accounts to see exchange rates between them.
                 </Text>
               </View>
             ) : (
-              displayRates.map((x, idx) => {
+              visibleRates.map((x, idx) => {
                 const isPositive = String(x.change).trim().startsWith("+");
                 return (
                   <Pressable
                     key={`${x.from}-${x.to}-${idx}`}
                     style={[
                       styles.fxRow,
-                      idx === displayRates.length - 1 ? { paddingBottom: 14 } : null,
+                      idx === visibleRates.length - 1 ? { paddingBottom: 14 } : null,
                     ]}
                     onPress={() => router.push(`/convert?from=${x.from}&to=${x.to}`)}
                   >

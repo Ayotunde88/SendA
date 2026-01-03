@@ -224,6 +224,10 @@ export async function saveUserAddress(payload: {
 export async function getUserProfile(phone: string): Promise<{
   success: boolean;
   user?: {
+    homeCurrencySymbol: any;
+    homeCurrency: any;
+    country: any;
+    countryCode: any;
     id: string;
     phone: string;
     email: string;
