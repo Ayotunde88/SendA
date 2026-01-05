@@ -139,7 +139,11 @@ export const checkPhoneExists = async (phone: string): Promise<{ exists: boolean
     return res.json();
 };
 
-export const login = async (phone: string, password: string): Promise<{ success: boolean; message: string; token?: string }> => {
+export const login = async (phone: string, password: string): Promise<{
+    user: any;
+    accessToken: any;
+    auth_token: any; success: boolean; message: string; token?: string 
+}> => {
   const res = await fetch(`${API_BASE_URL}/users/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -311,6 +315,21 @@ export const getExchangeRates = async (source?: string, pairs?: string) => {
   const res = await fetch(url);
   return res.json();
 };
+
+export const getTotalBalance = async (phone: string) => {
+  const response = await fetch(`${API_BASE_URL}/currencycloud/user-total-balance?phone=${encodeURIComponent(phone)}`);
+  return response.json();
+};
+
+export async function getHistoricalRates(from: string, to: string, range: string) {
+  const response = await fetch(
+    `${API_BASE_URL}/exchange-rates/historical?from=${from}&to=${to}&range=${range}`
+  );
+  return response.json();
+}
+
+
+
 
 
 

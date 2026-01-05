@@ -1,20 +1,40 @@
-import React, { useState, useCallback, useMemo, useEffect } from "react";
-import { View, Text, Pressable, Alert, RefreshControl, Image, ActivityIndicator } from "react-native";
-import { useRouter } from "expo-router";
-import { useFocusEffect } from "expo-router";
-import { ScrollView } from "react-native";
+// components/src/screens/HomeScreen.tsx
+
+import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import {
+  View,
+  Text,
+  Pressable,
+  Alert,
+  RefreshControl,
+  Image,
+  ActivityIndicator,
+  ScrollView,
+  Platform,
+} from "react-native";
+import { useRouter, useFocusEffect } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { LinearGradient } from "expo-linear-gradient";
+import Svg, { Path, Defs, LinearGradient as SvgGradient, Stop } from "react-native-svg";
+
 import ScreenShell from "./../../ScreenShell";
 import PrimaryButton from "./../../PrimaryButton";
 import OutlineButton from "./../../OutlineButton";
 import BottomSheet from "./../../BottomSheet";
+import VerifyEmailCard from "../../../components/src/screens/VerifyEmailCardScreen";
 import { styles } from "../../../theme/styles";
 import { COLORS } from "../../../theme/colors";
-import { LinearGradient } from "expo-linear-gradient";
 import { recents } from "../data/MockData";
-import VerifyEmailCard from "../../../components/src/screens/VerifyEmailCardScreen";
-import { SafeAreaView } from "react-native-safe-area-context";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { sendEmailOtp, getUserProfile, getUserAccounts, getCountries, getExchangeRates } from "@/api/config";
+
+import {
+  sendEmailOtp,
+  getUserProfile,
+  getUserAccounts,
+  getCountries,
+  getExchangeRates,
+  getTotalBalance,
+} from "@/api/config";
 
 type Country = {
   code: string;
@@ -38,6 +58,7 @@ type UserAccount = {
     countryName?: string;
     flag?: string;
     symbol?: string;
+    enabled?: boolean;
   } | null;
 };
 
@@ -53,10 +74,234 @@ type DisplayRate = {
 
 const HIDE_BALANCE_KEY = "hide_balance_preference";
 
+type RangeKey = "1D" | "5D" | "1M" | "1Y" | "5Y" | "MAX";
+
+/** ---------- Mini chart helpers (NO d3) ---------- **/
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function buildSmoothPath(points: { x: number; y: number }[]) {
+  if (points.length === 0) return "";
+  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+
+  // A lightweight smoothing using quadratic beziers between midpoints
+  const mid = (a: number, b: number) => (a + b) / 2;
+
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length; i++) {
+    const p0 = points[i - 1];
+    const p1 = points[i];
+    const mx = mid(p0.x, p1.x);
+    const my = mid(p0.y, p1.y);
+    d += ` Q ${p0.x} ${p0.y} ${mx} ${my}`;
+    if (i === points.length - 1) {
+      d += ` T ${p1.x} ${p1.y}`;
+    }
+  }
+  return d;
+}
+
+function makeSeries(baseRate: number, range: RangeKey) {
+  // purely UI demo series; if you later fetch real OHLC, replace this
+  const pointsCountByRange: Record<RangeKey, number> = {
+    "1D": 24,
+    "5D": 40,
+    "1M": 60,
+    "1Y": 80,
+    "5Y": 90,
+    "MAX": 100,
+  };
+
+  const volByRange: Record<RangeKey, number> = {
+    "1D": 0.0035,
+    "5D": 0.006,
+    "1M": 0.012,
+    "1Y": 0.02,
+    "5Y": 0.03,
+    "MAX": 0.04,
+  };
+
+  const n = pointsCountByRange[range];
+  const vol = volByRange[range];
+
+  // deterministic-ish wiggle
+  const series: number[] = [];
+  let v = baseRate || 1;
+
+  for (let i = 0; i < n; i++) {
+    const t = i / Math.max(1, n - 1);
+    const wave1 = Math.sin(t * Math.PI * 2.2);
+    const wave2 = Math.sin(t * Math.PI * 6.5) * 0.35;
+    const drift = (t - 0.5) * vol * (range === "1D" ? 0.2 : 0.35);
+
+    const noise = (wave1 + wave2) * vol + drift;
+    v = (baseRate || 1) * (1 + noise);
+
+    // clamp to keep sane
+    v = clamp(v, (baseRate || 1) * 0.85, (baseRate || 1) * 1.15);
+    series.push(v);
+  }
+
+  return series;
+}
+
+function LiveRateMiniChart({
+  pairLabel,
+  baseRate,
+  range,
+  onRangeChange,
+  containerWidth,
+}: {
+  pairLabel: string;
+  baseRate: number;
+  range: RangeKey;
+  onRangeChange: (r: RangeKey) => void;
+  containerWidth: number;
+}) {
+  const chartH = 160;
+
+  // Ensure the SVG never exceeds the card width
+  const chartW = Math.max(0, containerWidth);
+
+  const data = useMemo(() => makeSeries(baseRate, range), [baseRate, range]);
+
+  const { linePath, fillPath, lastPoint } = useMemo(() => {
+    if (chartW <= 0 || data.length < 2) {
+      return { linePath: "", fillPath: "", lastPoint: { x: 0, y: 0 } };
+    }
+
+    const padX = 10;
+    const padTop = 12;
+    const padBottom = 18;
+
+    const min = Math.min(...data);
+    const max = Math.max(...data);
+    const span = Math.max(1e-9, max - min);
+
+    const usableW = Math.max(1, chartW - padX * 2);
+    const usableH = Math.max(1, chartH - padTop - padBottom);
+
+    const pts = data.map((v, i) => {
+      const x = padX + (i / (data.length - 1)) * usableW;
+      const y = padTop + (1 - (v - min) / span) * usableH;
+      return { x, y };
+    });
+
+    const dLine = buildSmoothPath(pts);
+
+    // area fill to baseline
+    const last = pts[pts.length - 1];
+    const first = pts[0];
+    const baselineY = padTop + usableH;
+
+    const dFill = `${dLine} L ${last.x} ${baselineY} L ${first.x} ${baselineY} Z`;
+
+    return { linePath: dLine, fillPath: dFill, lastPoint: last };
+  }, [chartW, chartH, data]);
+
+  const ranges: RangeKey[] = ["1D", "5D", "1M", "1Y", "5Y", "MAX"];
+
+  return (
+    <View style={{ marginTop: 10 }}>
+      <View style={{ flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" }}>
+        <View>
+          <Text style={{ fontWeight: "800", fontSize: 14, color: "#1F2937" }}>{pairLabel}</Text>
+          <Text style={{ marginTop: 2, color: "#6B7280", fontSize: 12 }}>
+            Live tracking • demo chart
+          </Text>
+        </View>
+
+        <View style={{ alignItems: "flex-end" }}>
+          <Text style={{ fontWeight: "900", fontSize: 14, color: "#111827" }}>
+            {Number(baseRate || 0).toLocaleString("en-US", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 6,
+            })}
+          </Text>
+          <Text style={{ color: "#10B981", fontWeight: "700", fontSize: 12, marginTop: 2 }}>
+            +0.0%
+          </Text>
+        </View>
+      </View>
+
+      {/* Range tabs */}
+      <View style={{ flexDirection: "row", marginTop: 10 }}>
+        {ranges.map((r) => {
+          const active = r === range;
+          return (
+            <Pressable
+              key={r}
+              onPress={() => onRangeChange(r)}
+              style={{
+                paddingHorizontal: 10,
+                paddingVertical: 8,
+                borderRadius: 999,
+                marginRight: 8,
+                backgroundColor: active ? "#EEF2FF" : "transparent",
+              }}
+            >
+              <Text style={{ fontWeight: "800", color: active ? "#1D4ED8" : "#6B7280" }}>
+                {r}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {/* Chart box */}
+      <View
+        style={{
+          width: chartW,
+          height: chartH,
+          borderRadius: 18,
+          backgroundColor: "#fff",
+          overflow: "hidden",
+          borderWidth: 1,
+          borderColor: "#EEF0F3",
+          marginTop: 10,
+        }}
+      >
+        <Svg width={chartW} height={chartH}>
+          <Defs>
+            <SvgGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0" stopColor="#111827" stopOpacity="0.18" />
+              <Stop offset="1" stopColor="#111827" stopOpacity="0.00" />
+            </SvgGradient>
+            <SvgGradient id="lineGrad" x1="0" y1="0" x2="1" y2="1">
+              <Stop offset="0" stopColor="#111827" stopOpacity="0.85" />
+              <Stop offset="1" stopColor="#2563EB" stopOpacity="0.85" />
+            </SvgGradient>
+          </Defs>
+
+          {/* filled area */}
+          {fillPath ? <Path d={fillPath} fill="url(#areaGrad)" /> : null}
+
+          {/* line */}
+          {linePath ? (
+            <Path d={linePath} fill="none" stroke="url(#lineGrad)" strokeWidth={3} />
+          ) : null}
+
+          {/* last dot */}
+          {linePath ? (
+            <Path
+              d={`M ${lastPoint.x} ${lastPoint.y} m -4,0 a 4,4 0 1,0 8,0 a 4,4 0 1,0 -8,0`}
+              fill="#111827"
+              opacity={0.9}
+            />
+          ) : null}
+        </Svg>
+      </View>
+    </View>
+  );
+}
+
 export default function HomeScreen() {
   const router = useRouter();
+
   const [sheetOpen, setSheetOpen] = useState(false);
   const [email, setEmail] = useState("");
+  const [userName, setUserName] = useState("");
   const [kycStatus, setKycStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -66,6 +311,9 @@ export default function HomeScreen() {
   const [displayRates, setDisplayRates] = useState<DisplayRate[]>([]);
   const [ratesLoading, setRatesLoading] = useState(true);
 
+  // Total balance from backend (calculated in home currency)
+  const [totalBalance, setTotalBalance] = useState<number>(0);
+
   // Home currency from backend (based on user's signup country)
   const [homeCurrency, setHomeCurrency] = useState<string>("");
   const [homeCurrencySymbol, setHomeCurrencySymbol] = useState<string>("");
@@ -73,14 +321,17 @@ export default function HomeScreen() {
   // Privacy toggle for hiding balances
   const [hideBalance, setHideBalance] = useState(false);
 
+  // Chart selection
+  const [selectedRange, setSelectedRange] = useState<RangeKey>("1M");
+  const [fxChartWidth, setFxChartWidth] = useState(0);
+  const [selectedPairKey, setSelectedPairKey] = useState<string>(""); // "USD_NGN"
+
   // Load hide balance preference on mount
   useEffect(() => {
     const loadHideBalancePreference = async () => {
       try {
         const stored = await AsyncStorage.getItem(HIDE_BALANCE_KEY);
-        if (stored !== null) {
-          setHideBalance(stored === "true");
-        }
+        if (stored !== null) setHideBalance(stored === "true");
       } catch (e) {
         console.log("Failed to load hide balance preference:", e);
       }
@@ -88,7 +339,6 @@ export default function HomeScreen() {
     loadHideBalancePreference();
   }, []);
 
-  // Toggle and persist hide balance preference
   const toggleHideBalance = useCallback(async () => {
     const newValue = !hideBalance;
     setHideBalance(newValue);
@@ -99,12 +349,9 @@ export default function HomeScreen() {
     }
   }, [hideBalance]);
 
-  // Format balance with privacy mask
   const formatBalance = useCallback(
     (balance?: number | null) => {
-      if (hideBalance) {
-        return "••••••";
-      }
+      if (hideBalance) return "••••••";
       const amount = typeof balance === "number" ? balance : 0;
       return amount.toLocaleString("en-US", {
         minimumFractionDigits: 2,
@@ -122,18 +369,17 @@ export default function HomeScreen() {
       if (storedUser) {
         const userInfo = JSON.parse(storedUser);
         setEmail(userInfo.email);
+        const firstName = userInfo.firstName || "";
+        setUserName(firstName.trim());
       }
 
-      // 1) Fetch countries/currencies from backend for flags
+      // 1) countries/flags
       let flagsMap: Record<string, string> = {};
-
       try {
         const countriesData: Country[] = await getCountries();
         for (const c of countriesData || []) {
           const key = (c.code || "").toUpperCase().trim();
-          if (key) {
-            flagsMap[key] = c.flag || "";
-          }
+          if (key) flagsMap[key] = c.flag || "";
         }
         setFlagsByCurrency(flagsMap);
       } catch (e) {
@@ -145,12 +391,14 @@ export default function HomeScreen() {
       let userHomeCurrency = "";
 
       if (phone) {
-        // 2) Fetch latest profile (KYC + home currency from backend)
+        // 2) profile
         const res = await getUserProfile(phone);
-        if (res.success && res.user) {
+        if (res?.success && res?.user) {
           setKycStatus(res.user.kycStatus);
 
-          // Use backend-provided home currency (already matched to user's signup country)
+          const firstName = res.user.firstName || "";
+          if (firstName) setUserName(String(firstName).trim());
+
           if (res.user.homeCurrency) {
             userHomeCurrency = res.user.homeCurrency;
             setHomeCurrency(res.user.homeCurrency);
@@ -158,24 +406,37 @@ export default function HomeScreen() {
           }
         }
 
-        // 3) Fetch accounts (+ balances)
+        // 3) accounts
         const accountsRes = await getUserAccounts(phone, true);
-        if (accountsRes.success && accountsRes.accounts) {
+        if (accountsRes?.success && accountsRes?.accounts) {
           userAccounts = accountsRes.accounts;
           setAccounts(userAccounts);
         } else {
           setAccounts([]);
         }
+
+        // 4) total balance from backend
+        try {
+          const totalRes = await getTotalBalance(phone);
+          if (totalRes?.success) {
+            setTotalBalance(totalRes.totalBalance || 0);
+            if (totalRes.homeCurrency) {
+              setHomeCurrency(totalRes.homeCurrency);
+              setHomeCurrencySymbol(totalRes.homeCurrencySymbol || totalRes.homeCurrency);
+            }
+          }
+        } catch (e) {
+          console.log("Failed to fetch total balance:", e);
+        }
       }
 
-      // 4) Fetch LIVE exchange rates for user's currency pairs (including home currency)
+      // 5) exchange rates for all wallet pairs
       setRatesLoading(true);
       try {
         const currencyCodes = userAccounts
           .map((a) => (a.currencyCode || "").toUpperCase().trim())
           .filter(Boolean);
 
-        // Include home currency in pairs for total balance conversion
         if (userHomeCurrency && !currencyCodes.includes(userHomeCurrency)) {
           currencyCodes.push(userHomeCurrency);
         }
@@ -183,34 +444,40 @@ export default function HomeScreen() {
         const pairs: string[] = [];
         for (const from of currencyCodes) {
           for (const to of currencyCodes) {
-            if (from !== to) {
-              pairs.push(`${from}_${to}`);
-            }
+            if (from !== to) pairs.push(`${from}_${to}`);
           }
         }
 
         if (pairs.length > 0) {
           const ratesRes = await getExchangeRates(pairs.join(","));
 
-          if (ratesRes.success && ratesRes.rates) {
+          if (ratesRes?.success && Array.isArray(ratesRes.rates)) {
             const formatted: DisplayRate[] = ratesRes.rates.map((r: any) => {
               const from = (r.fromCurrency || r.buy_currency || "").toUpperCase();
               const to = (r.toCurrency || r.sell_currency || "").toUpperCase();
               const numericRate = parseFloat(r.rate || r.core_rate || 0);
+
               return {
                 from,
                 to,
                 fromFlag: flagsMap[from] || "",
                 toFlag: flagsMap[to] || "",
-                rate: numericRate.toLocaleString("en-US", {
+                rate: Number(numericRate || 0).toLocaleString("en-US", {
                   minimumFractionDigits: 2,
-                  maximumFractionDigits: 4,
+                  maximumFractionDigits: 6,
                 }),
                 change: "+0.0%",
-                numericRate,
+                numericRate: Number.isFinite(numericRate) ? numericRate : 0,
               };
             });
+
             setDisplayRates(formatted);
+
+            // Default chart pair if not set yet
+            if (!selectedPairKey) {
+              const first = formatted[0];
+              if (first) setSelectedPairKey(`${first.from}_${first.to}`);
+            }
           } else {
             setDisplayRates([]);
           }
@@ -229,41 +496,7 @@ export default function HomeScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
-
-  // Calculate total balance converted to home currency
-  const totalBalance = useMemo(() => {
-    if (!homeCurrency || accounts.length === 0) return 0;
-
-    let total = 0;
-
-    for (const account of accounts) {
-      const balance = typeof account.balance === "number" ? account.balance : 0;
-      const accountCurrency = (account.currencyCode || "").toUpperCase().trim();
-
-      if (accountCurrency === homeCurrency) {
-        total += balance;
-      } else {
-        const directRate = displayRates.find(
-          (r) => r.from === accountCurrency && r.to === homeCurrency
-        );
-
-        if (directRate && directRate.numericRate > 0) {
-          total += balance * directRate.numericRate;
-        } else {
-          const reverseRate = displayRates.find(
-            (r) => r.from === homeCurrency && r.to === accountCurrency
-          );
-
-          if (reverseRate && reverseRate.numericRate > 0) {
-            total += balance / reverseRate.numericRate;
-          }
-        }
-      }
-    }
-
-    return total;
-  }, [accounts, displayRates, homeCurrency]);
+  }, [selectedPairKey]);
 
   useFocusEffect(
     useCallback(() => {
@@ -295,12 +528,19 @@ export default function HomeScreen() {
     );
   };
 
+  const handleDeactivatedCurrency = (currencyCode: string) => {
+    Alert.alert(
+      "Currency Deactivated",
+      `The ${currencyCode} currency has been deactivated by the administrator. Please contact support for assistance.`
+    );
+  };
+
   const getFlagForCurrency = (currencyCode?: string) => {
     const key = (currencyCode || "").toUpperCase().trim();
     return flagsByCurrency[key] || "";
   };
 
-  // Filter display rates for UI (only show wallet-to-wallet pairs)
+  // Show only wallet-to-wallet pairs in the visible list
   const visibleRates = useMemo(() => {
     const walletCurrencies = accounts.map((a) => (a.currencyCode || "").toUpperCase().trim());
     return displayRates
@@ -308,14 +548,17 @@ export default function HomeScreen() {
       .slice(0, 4);
   }, [displayRates, accounts]);
 
+  // Selected rate object for chart
+  const selectedRateObj = useMemo(() => {
+    if (!selectedPairKey) return null;
+    const [from, to] = selectedPairKey.split("_");
+    return displayRates.find((r) => r.from === from && r.to === to) || null;
+  }, [selectedPairKey, displayRates]);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <ScreenShell padded={false}>
-        <ScrollView
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-        >
+        <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
           {/* KYC Pending Banner */}
           {!loading && !isKycApproved && (
             <View
@@ -331,9 +574,7 @@ export default function HomeScreen() {
             >
               <Text style={{ fontSize: 16, marginRight: 8 }}>⚠️</Text>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontWeight: "700", color: "#856404" }}>
-                  KYC Verification Pending
-                </Text>
+                <Text style={{ fontWeight: "700", color: "#856404" }}>KYC Verification Pending</Text>
                 <Text style={{ color: "#856404", fontSize: 12, marginTop: 2 }}>
                   Your account is awaiting admin approval. Some features are restricted.
                 </Text>
@@ -341,19 +582,24 @@ export default function HomeScreen() {
             </View>
           )}
 
+          {/* Top Bar */}
           <View style={styles.topBar}>
-            <Pressable
-              style={styles.avatarCircle}
-              onPress={() => router.push("/profile")}
-            >
+            <Pressable style={styles.avatarCircle} onPress={() => router.push("/profile")}>
               <Text style={{ fontSize: 16 }}>👤</Text>
             </Pressable>
 
-            {/* Total Balance - Converted to Home Currency */}
+            {/* User Name + Total Balance */}
             <View style={{ marginLeft: 12 }}>
+              {userName ? (
+                <Text style={{ fontWeight: "600", fontSize: 14, color: "#222", marginTop: 2 }}>
+                  {userName}
+                </Text>
+              ) : null}
+
               <Text style={{ color: "#888", fontSize: 11 }}>
                 Total Balance {homeCurrency ? `(${homeCurrency})` : ""}
               </Text>
+
               {ratesLoading && accounts.length > 0 ? (
                 <ActivityIndicator size="small" color={COLORS.primary} />
               ) : (
@@ -361,9 +607,7 @@ export default function HomeScreen() {
                   <Text style={{ fontWeight: "700", fontSize: 16, color: "#222" }}>
                     {hideBalance ? "••••••" : `${homeCurrencySymbol}${formatBalance(totalBalance)}`}
                   </Text>
-                  <Text style={{ marginLeft: 6, fontSize: 14 }}>
-                    {hideBalance ? "🙈" : "👁️"}
-                  </Text>
+                  <Text style={{ marginLeft: 6, fontSize: 14 }}>{hideBalance ? "🙈" : "👁️"}</Text>
                 </Pressable>
               )}
             </View>
@@ -372,31 +616,25 @@ export default function HomeScreen() {
 
             <Pressable
               style={styles.addAccountPill}
-              onPress={() =>
-                isKycApproved ? router.push("/addaccount") : handleBlockedAction()
-              }
+              onPress={() => (isKycApproved ? router.push("/addaccount") : handleBlockedAction())}
             >
               <Text style={styles.addAccountIcon}>＋</Text>
               <Text style={styles.addAccountText}>Add account</Text>
             </Pressable>
           </View>
 
+          {/* Accounts header */}
           <View style={styles.sectionRow}>
             <Text style={styles.sectionTitle}>My accounts</Text>
             <View style={{ flex: 1 }} />
             <Pressable style={styles.hideBalanceRow} onPress={toggleHideBalance}>
-              <Text style={styles.hideBalanceText}>
-                {hideBalance ? "Show balance" : "Hide balance"}
-              </Text>
+              <Text style={styles.hideBalanceText}>{hideBalance ? "Show balance" : "Hide balance"}</Text>
               <Text style={{ marginLeft: 6 }}>{hideBalance ? "🙈" : "👁️"}</Text>
             </Pressable>
           </View>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.accountsRow}
-          >
+          {/* Accounts horizontal */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.accountsRow}>
             {accounts.length === 0 && !loading ? (
               <View style={{ padding: 20, alignItems: "center", width: "100%" }}>
                 <Text style={{ color: "#888", fontSize: 14 }}>
@@ -404,99 +642,107 @@ export default function HomeScreen() {
                 </Text>
               </View>
             ) : (
-              accounts.map((a) => (
-                <Pressable
-                  key={a.id}
-                  onPress={() => {
-                    if (!isKycApproved) {
-                      handleBlockedAction();
-                      return;
-                    }
+              accounts.map((a) => {
+                const isCurrencyDisabled = a.currency?.enabled === false;
 
-                    const accountData = JSON.stringify({
-                      id: a.id,
-                      currencyCode: a.currencyCode,
-                      accountName: a.accountName,
-                      iban: a.iban,
-                      bicSwift: a.bicSwift,
-                      status: a.status,
-                      balance: a.balance,
-                      flag: getFlagForCurrency(a.currencyCode),
-                      currencyName: a.currency?.name || a.currencyCode,
-                    });
+                return (
+                  <Pressable
+                    key={a.id}
+                    onPress={() => {
+                      if (isCurrencyDisabled) {
+                        handleDeactivatedCurrency(a.currencyCode);
+                        return;
+                      }
+                      if (!isKycApproved) {
+                        handleBlockedAction();
+                        return;
+                      }
 
-                    router.push(`/wallet?accountData=${encodeURIComponent(accountData)}`);
-                  }}
-                  style={{ marginRight: 12 }}
-                >
-                  <LinearGradient
-                    colors={
-                      a.currencyCode === "CAD"
-                        ? ["#3c3b3bff", "#3c3b3b"]
-                        : ["#19955f", "#19955f"]
-                    }
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.accountCardGradient}
+                      const accountData = JSON.stringify({
+                        id: a.id,
+                        currencyCode: a.currencyCode,
+                        accountName: a.accountName,
+                        iban: a.iban,
+                        bicSwift: a.bicSwift,
+                        status: a.status,
+                        balance: a.balance,
+                        flag: getFlagForCurrency(a.currencyCode),
+                        currencyName: a.currency?.name || a.currencyCode,
+                      });
+
+                      router.push(`/wallet?accountData=${encodeURIComponent(accountData)}`);
+                    }}
+                    style={{ marginRight: 12 }}
                   >
-                    <View style={styles.accountHeader}>
-                      <Text style={[styles.flag, { color: "#fff" }]}>
-                        {getFlagForCurrency(a.currencyCode)}
-                      </Text>
-                      <Text style={styles.accountLabelWhite}>{a.currencyCode}</Text>
-                    </View>
+                    <LinearGradient
+                      colors={
+                        isCurrencyDisabled
+                          ? ["#9ca3af", "#6b7280"]
+                          : a.currencyCode === "CAD"
+                          ? ["#3c3b3bff", "#3c3b3b"]
+                          : ["#19955f", "#19955f"]
+                      }
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={[styles.accountCardGradient, isCurrencyDisabled && { opacity: 0.7 }]}
+                    >
+                      <View style={styles.accountHeader}>
+                        <Text style={[styles.flag, { color: "#fff" }]}>{getFlagForCurrency(a.currencyCode)}</Text>
+                        <Text style={styles.accountLabelWhite}>{a.currencyCode}</Text>
 
-                    <Text style={styles.accountAmountWhite}>
-                      {formatBalance(a.balance)}
-                    </Text>
+                        {isCurrencyDisabled && (
+                          <View
+                            style={{
+                              backgroundColor: "#ef4444",
+                              paddingHorizontal: 6,
+                              paddingVertical: 2,
+                              borderRadius: 4,
+                              marginLeft: 6,
+                            }}
+                          >
+                            <Text style={{ color: "#fff", fontSize: 9, fontWeight: "600" }}>INACTIVE</Text>
+                          </View>
+                        )}
+                      </View>
 
-                    <Image
-                      source={require("../../../assets/images/icons/icons-icon.png")}
-                      style={styles.cardCornerImage}
-                      resizeMode="contain"
-                    />
-                  </LinearGradient>
-                </Pressable>
-              ))
+                      <Text style={styles.accountAmountWhite}>{formatBalance(a.balance)}</Text>
+
+                      <Image
+                        source={require("../../../assets/images/icons/icons-icon.png")}
+                        style={styles.cardCornerImage}
+                        resizeMode="contain"
+                      />
+                    </LinearGradient>
+                  </Pressable>
+                );
+              })
             )}
           </ScrollView>
 
+          {/* Actions */}
           <View style={styles.actionsRow}>
             <PrimaryButton
               title="Transfer Now"
-              onPress={() =>
-                isKycApproved ? router.push("/sendmoney") : handleBlockedAction()
-              }
+              onPress={() => (isKycApproved ? router.push("/sendmoney") : handleBlockedAction())}
               style={{ flex: 1 }}
             />
             <OutlineButton
               title="Add Money"
-              onPress={() =>
-                isKycApproved ? setSheetOpen(true) : handleBlockedAction()
-              }
+              onPress={() => (isKycApproved ? setSheetOpen(true) : handleBlockedAction())}
               style={{ flex: 1, marginLeft: 12 }}
             />
           </View>
 
-          {kycStatus === "pending" && (
-            <VerifyEmailCard email={email} onPress={handleVerifyEmail} />
-          )}
+          {kycStatus === "pending" && <VerifyEmailCard email={email} onPress={handleVerifyEmail} />}
 
-          <Text style={[styles.sectionTitle, { marginTop: 18, paddingHorizontal: 16 }]}>
-            Recent Recipients
-          </Text>
+          {/* Recents */}
+          <Text style={[styles.sectionTitle, { marginTop: 18, paddingHorizontal: 16 }]}>Recent Recipients</Text>
           <View style={styles.recentRow}>
             {recents.map((r, idx) => (
-              <Pressable
-                key={idx}
-                style={styles.recentCard}
-                onPress={() => !isKycApproved && handleBlockedAction()}
-              >
+              <Pressable key={idx} style={styles.recentCard} onPress={() => !isKycApproved && handleBlockedAction()}>
                 <View style={styles.recentAvatarWrap}>
                   <View style={styles.recentAvatar}>
-                    <Text style={{ fontWeight: "800", color: "#323232ff" }}>
-                      {r.initials}
-                    </Text>
+                    <Text style={{ fontWeight: "800", color: "#323232ff" }}>{r.initials}</Text>
                   </View>
                   <View style={styles.smallFlag}>
                     <Text>{r.flag}</Text>
@@ -508,9 +754,9 @@ export default function HomeScreen() {
             ))}
           </View>
 
-          <Text style={[styles.sectionTitle, { marginTop: 18, paddingHorizontal: 16 }]}>
-            Exchange Rates
-          </Text>
+          {/* FX */}
+          <Text style={[styles.sectionTitle, { marginTop: 18, paddingHorizontal: 16 }]}>Exchange Rates</Text>
+
           <View style={styles.fxCard}>
             <View style={styles.fxHeader}>
               <View>
@@ -536,60 +782,90 @@ export default function HomeScreen() {
                 </Text>
               </View>
             ) : (
-              visibleRates.map((x, idx) => {
-                const isPositive = String(x.change).trim().startsWith("+");
-                return (
-                  <Pressable
-                    key={`${x.from}-${x.to}-${idx}`}
-                    style={[
-                      styles.fxRow,
-                      idx === visibleRates.length - 1 ? { paddingBottom: 14 } : null,
-                    ]}
-                    onPress={() => router.push(`/convert?from=${x.from}&to=${x.to}`)}
+              <>
+                {visibleRates.map((x, idx) => {
+                  const isPositive = String(x.change).trim().startsWith("+");
+                  const key = `${x.from}_${x.to}`;
+
+                  return (
+                    <Pressable
+                      key={`${x.from}-${x.to}-${idx}`}
+                      style={[
+                        styles.fxRow,
+                        idx === visibleRates.length - 1 ? { paddingBottom: 14 } : null,
+                      ]}
+                      onPress={() => {
+                        setSelectedPairKey(key); // ✅ select for chart
+                        router.push(`/convert?from=${x.from}&to=${x.to}`);
+                      }}
+                      onLongPress={() => {
+                        // Long press selects without navigating
+                        setSelectedPairKey(key);
+                      }}
+                    >
+                      <View style={styles.fxLeft}>
+                        <View style={styles.fxFlags}>
+                          <Text style={styles.fxFlag}>{x.fromFlag}</Text>
+                          <Text style={styles.fxFlag}>{x.toFlag}</Text>
+                        </View>
+
+                        <View>
+                          <Text style={styles.fxPair}>
+                            {x.from} → {x.to}
+                          </Text>
+                          <Text style={styles.fxPairSub}>
+                            1 {x.from} = {x.rate} {x.to}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.fxRight}>
+                        <View style={[styles.fxChangePill, isPositive ? styles.fxUp : styles.fxDown]}>
+                          <Text style={[styles.fxChangeText, isPositive ? styles.fxUpText : styles.fxDownText]}>
+                            {x.change}
+                          </Text>
+                        </View>
+                        <Text style={styles.fxChevron}>›</Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+
+                {/* ✅ Chart (measures width properly to avoid overflow) */}
+                {selectedRateObj ? (
+                  <View
+                    style={{ paddingHorizontal: 16, paddingBottom: 14 }}
+                    onLayout={(e) => {
+                      const w = e.nativeEvent.layout.width;
+                      if (w !== fxChartWidth) setFxChartWidth(w);
+                    }}
                   >
-                    <View style={styles.fxLeft}>
-                      <View style={styles.fxFlags}>
-                        <Text style={styles.fxFlag}>{x.fromFlag}</Text>
-                        <Text style={styles.fxFlag}>{x.toFlag}</Text>
-                      </View>
+                    {fxChartWidth > 0 ? (
+                      <LiveRateMiniChart
+                        pairLabel={`${selectedRateObj.from} → ${selectedRateObj.to}`}
+                        baseRate={selectedRateObj.numericRate}
+                        range={selectedRange}
+                        onRangeChange={setSelectedRange}
+                        containerWidth={fxChartWidth} // ✅ fixes overflow
+                      />
+                    ) : null}
 
-                      <View>
-                        <Text style={styles.fxPair}>
-                          {x.from} → {x.to}
-                        </Text>
-                        <Text style={styles.fxPairSub}>
-                          1 {x.from} = {x.rate} {x.to}
-                        </Text>
-                      </View>
+                    <View style={{ marginTop: 10 }}>
+                      <Text style={styles.fxFooterText}>Last updated: just now</Text>
                     </View>
-
-                    <View style={styles.fxRight}>
-                      <View
-                        style={[styles.fxChangePill, isPositive ? styles.fxUp : styles.fxDown]}
-                      >
-                        <Text
-                          style={[
-                            styles.fxChangeText,
-                            isPositive ? styles.fxUpText : styles.fxDownText,
-                          ]}
-                        >
-                          {x.change}
-                        </Text>
-                      </View>
-                      <Text style={styles.fxChevron}>›</Text>
-                    </View>
-                  </Pressable>
-                );
-              })
+                  </View>
+                ) : (
+                  <View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>
+                    <Text style={styles.fxFooterText}>Last updated: just now</Text>
+                  </View>
+                )}
+              </>
             )}
-
-            <View style={styles.fxFooter}>
-              <Text style={styles.fxFooterText}>Last updated: just now</Text>
-            </View>
           </View>
         </ScrollView>
       </ScreenShell>
 
+      {/* Bottom Sheet */}
       <BottomSheet open={sheetOpen} onClose={() => setSheetOpen(false)}>
         <Text style={styles.sheetTitle}>Add money to</Text>
 
@@ -598,25 +874,48 @@ export default function HomeScreen() {
             No accounts available. Create an account first.
           </Text>
         ) : (
-          accounts.map((a) => (
-            <Pressable
-              key={a.id}
-              style={styles.sheetRow}
-              onPress={() => {
-                setSheetOpen(false);
-                router.push("/addmoneymethods");
-              }}
-            >
-              <View style={styles.sheetRowLeft}>
-                <Text style={styles.flag}>{getFlagForCurrency(a.currencyCode)}</Text>
-                <View>
-                  <Text style={styles.sheetRowTitle}>{a.currencyCode}</Text>
-                  <Text style={styles.sheetRowSub}>{a.currencyCode}</Text>
+          accounts.map((a) => {
+            const isCurrencyDisabled = a.currency?.enabled === false;
+
+            return (
+              <Pressable
+                key={a.id}
+                style={[styles.sheetRow, isCurrencyDisabled && { opacity: 0.5 }]}
+                onPress={() => {
+                  if (isCurrencyDisabled) {
+                    handleDeactivatedCurrency(a.currencyCode);
+                    return;
+                  }
+                  setSheetOpen(false);
+                  router.push("/addmoneymethods");
+                }}
+              >
+                <View style={styles.sheetRowLeft}>
+                  <Text style={styles.flag}>{getFlagForCurrency(a.currencyCode)}</Text>
+                  <View>
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      <Text style={styles.sheetRowTitle}>{a.currencyCode}</Text>
+                      {isCurrencyDisabled && (
+                        <View
+                          style={{
+                            backgroundColor: "#ef4444",
+                            paddingHorizontal: 4,
+                            paddingVertical: 1,
+                            borderRadius: 3,
+                            marginLeft: 6,
+                          }}
+                        >
+                          <Text style={{ color: "#fff", fontSize: 8, fontWeight: "600" }}>INACTIVE</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.sheetRowSub}>{a.currencyCode}</Text>
+                  </View>
                 </View>
-              </View>
-              <Text style={styles.sheetRowAmt}>{formatBalance(a.balance)}</Text>
-            </Pressable>
-          ))
+                <Text style={styles.sheetRowAmt}>{formatBalance(a.balance)}</Text>
+              </Pressable>
+            );
+          })
         )}
       </BottomSheet>
     </SafeAreaView>

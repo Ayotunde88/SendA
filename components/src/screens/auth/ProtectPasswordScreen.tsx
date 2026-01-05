@@ -38,7 +38,7 @@ export default function ProtectPasswordScreen() {
       const result = await setPassword(phone, password);
 
       if (result?.success) {
-        router.push("/referral");
+        router.push("/(tabs)");
       } else {
         Alert.alert("Error", result?.message || "Failed to set password");
       }

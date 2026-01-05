@@ -5,8 +5,11 @@ import { COLORS } from "../../theme/colors";
 import { styles } from "../../theme/styles";
 import { FontAwesome6, Ionicons } from "@expo/vector-icons";
 
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+type FontAwesomeName = React.ComponentProps<typeof FontAwesome6>['name'];
+
 interface TabBarIconProps {
-  name: string;
+  name: IoniconName | FontAwesomeName;
   focused: boolean;
   lib?: "fa" | "ion";
 }
@@ -16,10 +19,10 @@ function TabBarIcon({ name, focused, lib = "fa" }: TabBarIconProps) {
   const size = 22;
 
   if (lib === "ion") {
-    return <Ionicons name={name} size={size} color={color} />;
+    return <Ionicons name={name as IoniconName} size={size} color={color} />;
   }
 
-  return <FontAwesome6 name={name} size={size} color={color} />;
+  return <FontAwesome6 name={name as FontAwesomeName} size={size} color={color} />;
 }
 
 export default function TabsLayout() {
@@ -55,7 +58,7 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* Notification */}
+      {/* Notifications */}
       <Tabs.Screen
         name="notification"
         options={{

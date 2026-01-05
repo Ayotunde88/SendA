@@ -7,6 +7,7 @@ import CountryDropdown, { Country } from "../../../components/CountryDropdown";
 import { styles } from "../../../theme/styles";
 import { COLORS } from "../../../theme/colors";
 import { api, checkPhoneExists, login } from "../../../api/config";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -47,12 +48,18 @@ export default function LoginScreen() {
       // Step 2: Proceed with login
       const loginResult = await login(fullPhone, password);
 
-      if (!loginResult.success) {
+        if (!loginResult.success) {
         Alert.alert("Login Failed", loginResult.message || "Invalid credentials");
         setLoading(false);
         return;
-      }
+        }
+        await AsyncStorage.setItem("user_phone", fullPhone);
+        await AsyncStorage.setItem("auth_token", loginResult.auth_token || loginResult.accessToken || loginResult.token);
 
+        // Store user info including kycStatus
+        if (loginResult.user) {
+        await AsyncStorage.setItem("user_info", JSON.stringify(loginResult.user));
+        }
       // Success - navigate to main app
       router.replace("/(tabs)");
     } catch (error: any) {
