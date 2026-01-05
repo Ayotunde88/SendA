@@ -321,12 +321,14 @@ export const getTotalBalance = async (phone: string) => {
   return response.json();
 };
 
+// Add this to your api/config.ts
 export async function getHistoricalRates(from: string, to: string, range: string) {
   const response = await fetch(
     `${API_BASE_URL}/exchange-rates/historical?from=${from}&to=${to}&range=${range}`
   );
   return response.json();
 }
+
 
 
 

@@ -1,6 +1,6 @@
 // components/src/screens/HomeScreen.tsx
 
-import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import React, { useState, useCallback, useMemo, useEffect } from "react";
 import {
   View,
   Text,
@@ -34,6 +34,7 @@ import {
   getCountries,
   getExchangeRates,
   getTotalBalance,
+  getHistoricalRates,
 } from "@/api/config";
 
 type Country = {
@@ -72,20 +73,21 @@ type DisplayRate = {
   numericRate: number;
 };
 
+type HistoricalPoint = {
+  date: string;
+  timestamp: number;
+  rate: number;
+};
+
 const HIDE_BALANCE_KEY = "hide_balance_preference";
 
 type RangeKey = "1D" | "5D" | "1M" | "1Y" | "5Y" | "MAX";
 
-/** ---------- Mini chart helpers (NO d3) ---------- **/
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n));
-}
-
+/** ---------- Mini chart helpers ---------- **/
 function buildSmoothPath(points: { x: number; y: number }[]) {
   if (points.length === 0) return "";
   if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
 
-  // A lightweight smoothing using quadratic beziers between midpoints
   const mid = (a: number, b: number) => (a + b) / 2;
 
   let d = `M ${points[0].x} ${points[0].y}`;
@@ -102,72 +104,30 @@ function buildSmoothPath(points: { x: number; y: number }[]) {
   return d;
 }
 
-function makeSeries(baseRate: number, range: RangeKey) {
-  // purely UI demo series; if you later fetch real OHLC, replace this
-  const pointsCountByRange: Record<RangeKey, number> = {
-    "1D": 24,
-    "5D": 40,
-    "1M": 60,
-    "1Y": 80,
-    "5Y": 90,
-    "MAX": 100,
-  };
-
-  const volByRange: Record<RangeKey, number> = {
-    "1D": 0.0035,
-    "5D": 0.006,
-    "1M": 0.012,
-    "1Y": 0.02,
-    "5Y": 0.03,
-    "MAX": 0.04,
-  };
-
-  const n = pointsCountByRange[range];
-  const vol = volByRange[range];
-
-  // deterministic-ish wiggle
-  const series: number[] = [];
-  let v = baseRate || 1;
-
-  for (let i = 0; i < n; i++) {
-    const t = i / Math.max(1, n - 1);
-    const wave1 = Math.sin(t * Math.PI * 2.2);
-    const wave2 = Math.sin(t * Math.PI * 6.5) * 0.35;
-    const drift = (t - 0.5) * vol * (range === "1D" ? 0.2 : 0.35);
-
-    const noise = (wave1 + wave2) * vol + drift;
-    v = (baseRate || 1) * (1 + noise);
-
-    // clamp to keep sane
-    v = clamp(v, (baseRate || 1) * 0.85, (baseRate || 1) * 1.15);
-    series.push(v);
-  }
-
-  return series;
-}
-
 function LiveRateMiniChart({
   pairLabel,
   baseRate,
+  changePercent,
   range,
   onRangeChange,
   containerWidth,
+  historicalPoints,
+  isLoading,
 }: {
   pairLabel: string;
   baseRate: number;
+  changePercent: number;
   range: RangeKey;
   onRangeChange: (r: RangeKey) => void;
   containerWidth: number;
+  historicalPoints: HistoricalPoint[];
+  isLoading: boolean;
 }) {
   const chartH = 160;
-
-  // Ensure the SVG never exceeds the card width
   const chartW = Math.max(0, containerWidth);
 
-  const data = useMemo(() => makeSeries(baseRate, range), [baseRate, range]);
-
   const { linePath, fillPath, lastPoint } = useMemo(() => {
-    if (chartW <= 0 || data.length < 2) {
+    if (chartW <= 0 || historicalPoints.length < 2) {
       return { linePath: "", fillPath: "", lastPoint: { x: 0, y: 0 } };
     }
 
@@ -175,22 +135,22 @@ function LiveRateMiniChart({
     const padTop = 12;
     const padBottom = 18;
 
-    const min = Math.min(...data);
-    const max = Math.max(...data);
+    const rates = historicalPoints.map((p) => p.rate);
+    const min = Math.min(...rates);
+    const max = Math.max(...rates);
     const span = Math.max(1e-9, max - min);
 
     const usableW = Math.max(1, chartW - padX * 2);
     const usableH = Math.max(1, chartH - padTop - padBottom);
 
-    const pts = data.map((v, i) => {
-      const x = padX + (i / (data.length - 1)) * usableW;
-      const y = padTop + (1 - (v - min) / span) * usableH;
+    const pts = historicalPoints.map((p, i) => {
+      const x = padX + (i / (historicalPoints.length - 1)) * usableW;
+      const y = padTop + (1 - (p.rate - min) / span) * usableH;
       return { x, y };
     });
 
     const dLine = buildSmoothPath(pts);
 
-    // area fill to baseline
     const last = pts[pts.length - 1];
     const first = pts[0];
     const baselineY = padTop + usableH;
@@ -198,9 +158,10 @@ function LiveRateMiniChart({
     const dFill = `${dLine} L ${last.x} ${baselineY} L ${first.x} ${baselineY} Z`;
 
     return { linePath: dLine, fillPath: dFill, lastPoint: last };
-  }, [chartW, chartH, data]);
+  }, [chartW, chartH, historicalPoints]);
 
   const ranges: RangeKey[] = ["1D", "5D", "1M", "1Y", "5Y", "MAX"];
+  const isPositive = changePercent >= 0;
 
   return (
     <View style={{ marginTop: 10 }}>
@@ -208,7 +169,7 @@ function LiveRateMiniChart({
         <View>
           <Text style={{ fontWeight: "800", fontSize: 14, color: "#1F2937" }}>{pairLabel}</Text>
           <Text style={{ marginTop: 2, color: "#6B7280", fontSize: 12 }}>
-            Live tracking • demo chart
+            Live tracking • Open Exchange Rates
           </Text>
         </View>
 
@@ -219,8 +180,8 @@ function LiveRateMiniChart({
               maximumFractionDigits: 6,
             })}
           </Text>
-          <Text style={{ color: "#10B981", fontWeight: "700", fontSize: 12, marginTop: 2 }}>
-            +0.0%
+          <Text style={{ color: isPositive ? "#10B981" : "#EF4444", fontWeight: "700", fontSize: 12, marginTop: 2 }}>
+            {isPositive ? "+" : ""}{changePercent.toFixed(2)}%
           </Text>
         </View>
       </View>
@@ -260,37 +221,40 @@ function LiveRateMiniChart({
           borderWidth: 1,
           borderColor: "#EEF0F3",
           marginTop: 10,
+          justifyContent: "center",
+          alignItems: "center",
         }}
       >
-        <Svg width={chartW} height={chartH}>
-          <Defs>
-            <SvgGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor="#111827" stopOpacity="0.18" />
-              <Stop offset="1" stopColor="#111827" stopOpacity="0.00" />
-            </SvgGradient>
-            <SvgGradient id="lineGrad" x1="0" y1="0" x2="1" y2="1">
-              <Stop offset="0" stopColor="#111827" stopOpacity="0.85" />
-              <Stop offset="1" stopColor="#2563EB" stopOpacity="0.85" />
-            </SvgGradient>
-          </Defs>
+        {isLoading ? (
+          <ActivityIndicator size="small" color={COLORS.primary} />
+        ) : historicalPoints.length < 2 ? (
+          <Text style={{ color: "#888", fontSize: 12 }}>No chart data available</Text>
+        ) : (
+          <Svg width={chartW} height={chartH}>
+            <Defs>
+              <SvgGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor={isPositive ? "#10B981" : "#EF4444"} stopOpacity="0.18" />
+                <Stop offset="1" stopColor={isPositive ? "#10B981" : "#EF4444"} stopOpacity="0.00" />
+              </SvgGradient>
+              <SvgGradient id="lineGrad" x1="0" y1="0" x2="1" y2="1">
+                <Stop offset="0" stopColor={isPositive ? "#10B981" : "#EF4444"} stopOpacity="0.85" />
+                <Stop offset="1" stopColor={isPositive ? "#059669" : "#DC2626"} stopOpacity="0.85" />
+              </SvgGradient>
+            </Defs>
 
-          {/* filled area */}
-          {fillPath ? <Path d={fillPath} fill="url(#areaGrad)" /> : null}
-
-          {/* line */}
-          {linePath ? (
-            <Path d={linePath} fill="none" stroke="url(#lineGrad)" strokeWidth={3} />
-          ) : null}
-
-          {/* last dot */}
-          {linePath ? (
-            <Path
-              d={`M ${lastPoint.x} ${lastPoint.y} m -4,0 a 4,4 0 1,0 8,0 a 4,4 0 1,0 -8,0`}
-              fill="#111827"
-              opacity={0.9}
-            />
-          ) : null}
-        </Svg>
+            {fillPath ? <Path d={fillPath} fill="url(#areaGrad)" /> : null}
+            {linePath ? (
+              <Path d={linePath} fill="none" stroke="url(#lineGrad)" strokeWidth={3} />
+            ) : null}
+            {linePath ? (
+              <Path
+                d={`M ${lastPoint.x} ${lastPoint.y} m -4,0 a 4,4 0 1,0 8,0 a 4,4 0 1,0 -8,0`}
+                fill={isPositive ? "#10B981" : "#EF4444"}
+                opacity={0.9}
+              />
+            ) : null}
+          </Svg>
+        )}
       </View>
     </View>
   );
@@ -321,10 +285,13 @@ export default function HomeScreen() {
   // Privacy toggle for hiding balances
   const [hideBalance, setHideBalance] = useState(false);
 
-  // Chart selection
+  // Chart state - LIVE DATA
   const [selectedRange, setSelectedRange] = useState<RangeKey>("1M");
+  const [selectedPairKey, setSelectedPairKey] = useState<string>("");
+  const [historicalPoints, setHistoricalPoints] = useState<HistoricalPoint[]>([]);
+  const [chartChangePercent, setChartChangePercent] = useState<number>(0);
+  const [chartLoading, setChartLoading] = useState(false);
   const [fxChartWidth, setFxChartWidth] = useState(0);
-  const [selectedPairKey, setSelectedPairKey] = useState<string>(""); // "USD_NGN"
 
   // Load hide balance preference on mount
   useEffect(() => {
@@ -338,6 +305,36 @@ export default function HomeScreen() {
     };
     loadHideBalancePreference();
   }, []);
+
+  // Fetch LIVE historical data when pair or range changes
+  useEffect(() => {
+    if (!selectedPairKey) return;
+    
+    const [from, to] = selectedPairKey.split("_");
+    if (!from || !to) return;
+
+    const fetchHistorical = async () => {
+      setChartLoading(true);
+      try {
+        const res = await getHistoricalRates(from, to, selectedRange);
+        if (res?.success && Array.isArray(res.points)) {
+          setHistoricalPoints(res.points);
+          setChartChangePercent(res.changePercent || 0);
+        } else {
+          setHistoricalPoints([]);
+          setChartChangePercent(0);
+        }
+      } catch (e) {
+        console.log("Failed to fetch historical rates:", e);
+        setHistoricalPoints([]);
+        setChartChangePercent(0);
+      } finally {
+        setChartLoading(false);
+      }
+    };
+
+    fetchHistorical();
+  }, [selectedPairKey, selectedRange]);
 
   const toggleHideBalance = useCallback(async () => {
     const newValue = !hideBalance;
@@ -473,10 +470,10 @@ export default function HomeScreen() {
 
             setDisplayRates(formatted);
 
-            // Default chart pair if not set yet
-            if (!selectedPairKey) {
+            // Auto-select first pair for chart if not set
+            if (!selectedPairKey && formatted.length > 0) {
               const first = formatted[0];
-              if (first) setSelectedPairKey(`${first.from}_${first.to}`);
+              setSelectedPairKey(`${first.from}_${first.to}`);
             }
           } else {
             setDisplayRates([]);
@@ -764,7 +761,7 @@ export default function HomeScreen() {
                 <Text style={styles.fxSubtitle}>Mid-market • updates frequently</Text>
               </View>
 
-              <Pressable onPress={() => router.push("/rates")}>
+              <Pressable onPress={() => {}}>
                 <Text style={styles.fxSeeAll}>See all</Text>
               </Pressable>
             </View>
@@ -795,11 +792,10 @@ export default function HomeScreen() {
                         idx === visibleRates.length - 1 ? { paddingBottom: 14 } : null,
                       ]}
                       onPress={() => {
-                        setSelectedPairKey(key); // ✅ select for chart
+                        setSelectedPairKey(key);
                         router.push(`/convert?from=${x.from}&to=${x.to}`);
                       }}
                       onLongPress={() => {
-                        // Long press selects without navigating
                         setSelectedPairKey(key);
                       }}
                     >
@@ -831,7 +827,7 @@ export default function HomeScreen() {
                   );
                 })}
 
-                {/* ✅ Chart (measures width properly to avoid overflow) */}
+                {/* LIVE Chart using backend data */}
                 {selectedRateObj ? (
                   <View
                     style={{ paddingHorizontal: 16, paddingBottom: 14 }}
@@ -844,9 +840,12 @@ export default function HomeScreen() {
                       <LiveRateMiniChart
                         pairLabel={`${selectedRateObj.from} → ${selectedRateObj.to}`}
                         baseRate={selectedRateObj.numericRate}
+                        changePercent={chartChangePercent}
                         range={selectedRange}
                         onRangeChange={setSelectedRange}
-                        containerWidth={fxChartWidth} // ✅ fixes overflow
+                        containerWidth={fxChartWidth}
+                        historicalPoints={historicalPoints}
+                        isLoading={chartLoading}
                       />
                     ) : null}
 
