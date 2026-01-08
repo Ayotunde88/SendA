@@ -1,10 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, Pressable, ActivityIndicator } from "react-native";
+import { View, Text, Pressable, ActivityIndicator, Alert, Modal, FlatList } from "react-native";
 import { useRouter } from "expo-router";
 import { styles } from "../../../../theme/styles";
-import { getPublicCurrencies, createCurrencyAccount } from "@/api/config";
-
-import { Alert } from 'react-native';
+import { getPublicCurrencies, createCurrencyAccount, getCountries, saveBaseCurrency } from "@/api/config";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -15,6 +13,7 @@ interface Currency {
   countryName: string;
   flag: string;
   symbol: string;
+  enabled?: boolean;
 }
 
 interface CurrencyRowProps {
@@ -24,54 +23,101 @@ interface CurrencyRowProps {
   onPress: () => void;
   symbol?: string;
   code?: string;
-  countryCode?: string;
+  disabled?: boolean;
+
 }
 
-function CurrencyRow({ flag, title, subtitle, symbol, code, countryCode, onPress }: CurrencyRowProps) {
+function CurrencyRow({ flag, title, subtitle, onPress, disabled }: CurrencyRowProps) {
   return (
-    <Pressable style={styles.addAccRow} onPress={onPress}>
-      <Text style={styles.addAccFlag}>{flag}</Text>
+    <Pressable 
+      style={[styles.addAccRow, disabled && { opacity: 0.5, backgroundColor: '#f3f4f6' }]} 
+      onPress={onPress}
+    >
+      <Text style={[styles.addAccFlag, disabled && { opacity: 0.6 }]}>{flag}</Text>
       <View style={{ flex: 1 }}>
-        <Text style={styles.addAccTitle}>{title}</Text>
-        <Text style={styles.addAccSubtitle}>{subtitle}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={[styles.addAccTitle, disabled && { color: '#9ca3af' }]}>{title}</Text>
+          {disabled && (
+            <View style={{ 
+              backgroundColor: '#ef4444', 
+              paddingHorizontal: 6, 
+              paddingVertical: 2, 
+              borderRadius: 4, 
+              marginLeft: 8 
+            }}>
+              <Text style={{ color: '#fff', fontSize: 9, fontWeight: '600' }}>INACTIVE</Text>
+            </View>
+          )}
+        </View>
+        <Text style={[styles.addAccSubtitle, disabled && { color: '#d1d5db' }]}>{subtitle}</Text>
       </View>
-      <Text style={styles.chev}>›</Text>
+      <Text style={[styles.chev, disabled && { color: '#d1d5db' }]}>›</Text>
     </Pressable>
   );
 }
 
-export default  function AddAccountScreen() {
+export default function AddAccountScreen() {
   const router = useRouter();
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [loading, setLoading] = useState(true);
   const [userPhone, setUserPhone] = useState<string | null>(null);
+  const [userCountry, setUserCountry] = useState<string | null>(null);
+  const [userCurrencyEnabled, setUserCurrencyEnabled] = useState<boolean | null>(null);
+  const [showBaseCurrencyModal, setShowBaseCurrencyModal] = useState(false);
+  const [baseCurrency, setBaseCurrency] = useState<Currency | null>(null);
 
+  // Load user info
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const storedphone = await AsyncStorage.getItem("user_phone");
-        if (mounted && storedphone) {
-          try {
-            // const parsed = JSON.parse(phone);
-            setUserPhone(storedphone);
-          } catch (e) {
-            console.warn("Failed to parse user_info:", e);
-          }
+        const storedPhone = await AsyncStorage.getItem("user_phone");
+        const userInfo = await AsyncStorage.getItem("user_info");
+        
+        if (mounted && storedPhone) {
+          setUserPhone(storedPhone);
+        }
+        
+        if (mounted && userInfo) {
+          const parsed = JSON.parse(userInfo);
+          setUserCountry(parsed.country || null);
         }
       } catch (e) {
-        console.warn("Failed to load user_info:", e);
+        console.warn("Failed to load user info:", e);
       }
     })();
     return () => { mounted = false; };
   }, []);
 
+  // Fetch currencies and check if user's country currency is enabled
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const data = await getPublicCurrencies();
-        if (mounted) setCurrencies(data);
+        // Fetch ALL currencies including disabled ones
+        const data = await getPublicCurrencies(true);
+        if (mounted) {
+          setCurrencies(data);
+          
+          // Check if user's country has an enabled currency
+          if (userCountry) {
+            const userCurrency = data.find(
+              (c) => c.countryName?.toLowerCase() === userCountry.toLowerCase() ||
+                     c.countryCode?.toLowerCase() === userCountry.toLowerCase()
+            );
+            
+            if (userCurrency) {
+              setUserCurrencyEnabled(userCurrency.enabled !== false);
+              if (userCurrency.enabled !== false) {
+                // Auto-set base currency if user's country currency is enabled
+                setBaseCurrency(userCurrency);
+              }
+            } else {
+              // Country not found in currencies - needs base currency selection
+              setUserCurrencyEnabled(false);
+            }
+          }
+        }
       } catch (e) {
         console.error("Failed to fetch currencies:", e);
       } finally {
@@ -79,19 +125,54 @@ export default  function AddAccountScreen() {
       }
     })();
     return () => { mounted = false; };
-  }, []);
+  }, [userCountry]);
 
-  const handleAccountCreation = async (userPhone: string | null, currencyCode: string, countryCode: string) => {
+  // Show base currency modal if user's country currency is not enabled
+  useEffect(() => {
+    if (!loading && userCurrencyEnabled === false && !baseCurrency) {
+      setShowBaseCurrencyModal(true);
+    }
+  }, [loading, userCurrencyEnabled, baseCurrency]);
+
+  const handleSelectBaseCurrency = async (currencyCode: string) => {
+    setBaseCurrency(currencyCode as any);
+    setShowBaseCurrencyModal(false);
+    
+    // Persist to AsyncStorage
+    await AsyncStorage.setItem('base_currency', currencyCode);
+    
+    // Save to backend
+    try {
+      const token = await AsyncStorage.getItem('auth_token');
+      const phone = await AsyncStorage.getItem('user_phone');
+      if (token && phone) {
+        await saveBaseCurrency(phone, currencyCode, token);
+      }
+    } catch (error) {
+      console.log('Failed to save base currency to backend:', error);
+    }
+  };
+
+  const handleCurrencyPress = async (currency: Currency) => {
+    // Check if currency is disabled
+    if (currency.enabled === false) {
+      Alert.alert(
+        "Currency Disabled", 
+        "This currency is currently disabled. Please contact support for assistance."
+      );
+      return;
+    }
+
+    // Check if user is authenticated
     if (!userPhone) {
       Alert.alert("Error", "User not authenticated");
       return;
     }
     
     try {
-      const result = await createCurrencyAccount(userPhone, currencyCode, countryCode);
+      const result = await createCurrencyAccount(userPhone, currency.code, currency.countryCode || "");
       if (result.success) {
         Alert.alert("Success", "Account created successfully!");
-        // Navigate or refresh accounts list
         router.back();
       } else {
         Alert.alert("Error", result.message);
@@ -100,6 +181,10 @@ export default  function AddAccountScreen() {
       Alert.alert("Error", "Failed to create account");
     }
   };
+
+  // Get only enabled currencies for base currency selection
+  const enabledCurrencies = currencies.filter(c => c.enabled !== false);
+
   return (
     <SafeAreaView style={{ flex: 1 }}>
       <View style={styles.shell}>
@@ -116,6 +201,27 @@ export default  function AddAccountScreen() {
           Choose a currency you want to hold. Receive, spend and{"\n"}
           send money like a local.
         </Text>
+
+        {/* Show base currency if selected */}
+        {baseCurrency && userCurrencyEnabled === false && (
+          <View style={{ 
+            backgroundColor: '#f0fdf4', 
+            padding: 12, 
+            borderRadius: 8, 
+            marginTop: 16,
+            borderWidth: 1,
+            borderColor: '#22c55e20'
+          }}>
+            <Text style={{ fontSize: 12, color: '#16a34a', fontWeight: '600' }}>
+              Base Currency: {baseCurrency.flag} {baseCurrency.name}
+            </Text>
+            <Pressable onPress={() => setShowBaseCurrencyModal(true)}>
+              <Text style={{ fontSize: 11, color: '#16a34a', marginTop: 4, textDecorationLine: 'underline' }}>
+                Change base currency
+              </Text>
+            </Pressable>
+          </View>
+        )}
 
         <View style={{ height: 22 }} />
 
@@ -134,13 +240,77 @@ export default  function AddAccountScreen() {
                   flag={currency.flag}
                   title={currency.name}
                   subtitle={currency.countryName || currency.name}
-                  onPress={() => handleAccountCreation(userPhone, currency.code, currency.countryCode || "")}
+                  disabled={currency.enabled === false}
+                  onPress={() => handleCurrencyPress(currency)}
                 />
               </React.Fragment>
             ))}
           </View>
         )}
       </View>
+
+      {/* Base Currency Selection Modal */}
+      <Modal
+        visible={showBaseCurrencyModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          if (baseCurrency) setShowBaseCurrencyModal(false);
+        }}
+      >
+        <View style={{ 
+          flex: 1, 
+          backgroundColor: 'rgba(0,0,0,0.5)', 
+          justifyContent: 'flex-end' 
+        }}>
+          <View style={{ 
+            backgroundColor: '#fff', 
+            borderTopLeftRadius: 20, 
+            borderTopRightRadius: 20,
+            paddingTop: 20,
+            paddingBottom: 40,
+            maxHeight: '80%'
+          }}>
+            <View style={{ paddingHorizontal: 20, marginBottom: 16 }}>
+              <Text style={{ fontSize: 20, fontWeight: '700', color: '#1f2937' }}>
+                Select Base Currency
+              </Text>
+              <Text style={{ fontSize: 14, color: '#6b7280', marginTop: 8, lineHeight: 20 }}>
+                Your country's currency is not available. Please select a base currency for your account.
+              </Text>
+            </View>
+
+            <FlatList
+              data={enabledCurrencies}
+              keyExtractor={(item) => item.code}
+              renderItem={({ item }) => (
+                <Pressable
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingVertical: 14,
+                    paddingHorizontal: 20,
+                    borderBottomWidth: 1,
+                    borderBottomColor: '#f3f4f6',
+                  }}
+                  onPress={() => handleSelectBaseCurrency(item as any)}
+                >
+                  <Text style={{ fontSize: 28, marginRight: 12 }}>{item.flag}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, fontWeight: '600', color: '#1f2937' }}>
+                      {item.name}
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#6b7280' }}>
+                      {item.countryName || item.code}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 14, color: '#9ca3af' }}>›</Text>
+                </Pressable>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }

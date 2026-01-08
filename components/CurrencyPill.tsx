@@ -15,3 +15,4 @@ export default function CurrencyPill({ flag, code, onPress }: Props) {
     </Pressable>
   );
 }
+

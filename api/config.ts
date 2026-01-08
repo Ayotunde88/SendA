@@ -117,16 +117,33 @@ export interface Country {
   dialCode?: string;
 }
 
+// Updated getCountries function
 export const getCountries = async (): Promise<Country[]> => {
-  const res = await fetch(`${API_BASE_URL}/currencies/public`);
-  if (!res.ok) throw new Error('Failed to fetch countries');
-  const data = await res.json();
-  return data.map((c: any) => ({
+  const response = await fetch(`${API_BASE_URL}/countries/public`);
+  if (!response.ok) throw new Error('Failed to fetch countries');
+  const data = await response.json();
+  return data.map((c: any) => ({  // ← Remove .countries
     code: c.code,
-    name: c.countryName || c.name, // Use countryName for display
-    flag: c.flag || '🏳️',
-    dialCode: c.dialCode || '',
-    }));
+    name: c.countryName || c.name,
+    flag: c.flag,
+    dialCode: c.dialCode,
+    currencyCode: c.currencyCode,
+    currencyEnabled: c.currencyEnabled,
+  }));
+};
+
+
+// New function to save base currency to backend
+export const saveBaseCurrency = async (phone: string, baseCurrency: string, token: string): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/users/profile`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({ phone, baseCurrency }),
+  });
+  if (!response.ok) throw new Error('Failed to save base currency');
 };
 
 // Add to api/config.ts
@@ -228,6 +245,8 @@ export async function saveUserAddress(payload: {
 export async function getUserProfile(phone: string): Promise<{
   success: boolean;
   user?: {
+    first_name: string;
+    baseCurrency: any;
     homeCurrencySymbol: any;
     homeCurrency: any;
     country: any;
@@ -255,6 +274,7 @@ export async function getUserProfile(phone: string): Promise<{
 // api/config.ts
 
 interface Currency {
+  enabled: boolean;
   code: string;
   countryCode: string; // 2-letter ISO country code
   name: string;
@@ -264,11 +284,15 @@ interface Currency {
   dialCode: string;
 }
 
-export async function getPublicCurrencies(): Promise<Currency[]> {
-  const res = await fetch(`${API_BASE_URL}/currencies/public`);
+export async function getPublicCurrencies(includeAll = false): Promise<Currency[]> {
+  const url = includeAll 
+    ? `${API_BASE_URL}/currencies/public?all=true`
+    : `${API_BASE_URL}/currencies/public`;
+  const res = await fetch(url);
   if (!res.ok) throw new Error("Failed to fetch currencies");
   return res.json();
 }
+
 
 
 export const createCurrencyAccount = async (
@@ -328,6 +352,62 @@ export async function getHistoricalRates(from: string, to: string, range: string
   );
   return response.json();
 }
+
+// ============ CONVERSION API FUNCTIONS ============
+
+// Get user wallets with balances for conversion
+// Get user wallets with balances for conversion
+export const getUserWallets = async (phone: string) => {
+  const response = await fetch(
+    `${API_BASE_URL}/currencycloud/user/wallets?phone=${encodeURIComponent(phone)}`
+  );
+  return response.json();
+};
+
+// Get conversion quote
+export const getConversionQuote = async (
+  phone: string,
+  sellCurrency: string,
+  buyCurrency: string,
+  amount: number,
+  fixedSide: "sell" | "buy" = "sell"
+) => {
+  const response = await fetch(`${API_BASE_URL}/currencycloud/user/convert/quote`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      phone,
+      sell_currency: sellCurrency,
+      buy_currency: buyCurrency,
+      amount,
+      fixed_side: fixedSide,
+    }),
+  });
+  return response.json();
+};
+
+// Execute conversion
+export const executeConversion = async (
+  phone: string,
+  sellCurrency: string,
+  buyCurrency: string,
+  amount: number,
+  fixedSide: "sell" | "buy" = "sell"
+) => {
+  const response = await fetch(`${API_BASE_URL}/currencycloud/user/convert`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      phone,
+      sell_currency: sellCurrency,
+      buy_currency: buyCurrency,
+      amount,
+      fixed_side: fixedSide,
+    }),
+  });
+  return response.json();
+};
+
 
 
 

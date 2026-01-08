@@ -2,10 +2,17 @@ import React from "react";
 import { View, Text, Pressable } from "react-native";
 import ScreenShell from "./../../ScreenShell";
 import { styles } from "../../../theme/styles";
+import { router } from "expo-router";
 
 export default function AddMoneyMethodsScreen() {
   return (
     <ScreenShell>
+        <View style={styles.simpleHeader}>
+            <Pressable onPress={() => router.back()} style={styles.backBtn}>
+            <Text style={styles.backIcon}>←</Text>
+            </Pressable>
+            <View style={{ flex: 1 }} />
+        </View>
       <Text style={[styles.bigTitle, { marginTop: 6 }]}>Add money from</Text>
       <Text style={[styles.muted, { marginTop: 8, fontWeight: "800" }]}>AVAILABLE METHODS</Text>
 

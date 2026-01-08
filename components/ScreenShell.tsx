@@ -5,6 +5,11 @@ import { COLORS } from "../theme/colors";
 interface Props {
   children: React.ReactNode;
   padded?: boolean;
+  
+}
+interface TitleProps {
+  title: string;
+  showBack?: boolean;
 }
 
 export default function ScreenShell({ children, padded = true }: Props) {

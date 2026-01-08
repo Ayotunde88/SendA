@@ -95,12 +95,13 @@ slide: {
 
   primaryBtn: {
     width: "100%",
-    // height: 56,
-    paddingVertical: 11,
+    height: 58,
+    paddingVertical: 15,
     borderRadius: 999,
     backgroundColor: "#3c3b3bff",
     alignItems: "center",
     justifyContent: "center",
+    marginTop: 20,
   },
   primaryBtnText: {
     color: "#fff",
@@ -131,8 +132,9 @@ slide: {
   },
   tabIconText: { fontSize: 16, color: "#A3A3A3", fontWeight: "500" },
 
-  bigTitle: { fontSize: 34, fontWeight: "600", marginTop: 10, color: COLORS.text },
-  muted: { color: COLORS.muted, fontWeight: "600" },
+  bigTitle: { fontSize: 24, fontWeight: "600", marginTop: 10, color: COLORS.text ,  marginBottom: 10},
+
+  muted: { color: COLORS.muted, fontWeight: "600",  },
 
   topBar: { paddingHorizontal: 16, paddingTop: 10, flexDirection: "row", alignItems: "center" },
   avatarCircle: {
@@ -174,7 +176,9 @@ slide: {
     width: "100%",
     borderWidth: 2,
     borderColor: COLORS.green,
-    paddingVertical: 9,
+    paddingVertical: 10,
+    marginBottom: -20,
+    height: 55,
     borderRadius: 999,
     justifyContent: "center",
     alignItems: "center",
@@ -1875,6 +1879,7 @@ cardCornerImage: {
   width: 90,
   height: 90,
   opacity: 1, // optional (fintech look)
+  zIndex: 1,
 },
 
 
@@ -2301,6 +2306,295 @@ resultSecondaryBtn: {
 resultSecondaryText: {
   fontWeight: "900",
   fontSize: 14,
+},
+
+// Mid-market disclaimer (FX)
+
+midMarketBox: {
+  marginTop: 16,
+  borderRadius: 14,
+  borderWidth: 1,
+  borderColor: "rgba(245, 158, 11, 0.30)", // amber border
+  backgroundColor: "rgba(245, 158, 11, 0.06)", // amber background
+  padding: 14,
+},
+
+midMarketRow: {
+  flexDirection: "row",
+  alignItems: "flex-start",
+},
+
+midMarketIconWrap: {
+  width: 28,
+  height: 28,
+  borderRadius: 999,
+  backgroundColor: "rgba(245, 158, 11, 0.15)",
+  alignItems: "center",
+  justifyContent: "center",
+  marginRight: 10,
+  marginTop: 2,
+},
+
+midMarketIcon: {
+  color: "#B45309", // amber-700
+},
+
+midMarketTextWrap: {
+  flex: 1,
+},
+
+midMarketTitle: {
+  fontSize: 14,
+  fontWeight: "800",
+  color: "#111827",
+},
+
+midMarketDescription: {
+  fontSize: 12.5,
+  color: "#6B7280",
+  marginTop: 6,
+  lineHeight: 18,
+},
+
+midMarketStrong: {
+  fontWeight: "800",
+  color: "#111827",
+},
+
+// Support Chat
+
+chatHeader: {
+  flexDirection: "row",
+  alignItems: "center",
+  paddingHorizontal: 16,
+  paddingTop: 10,
+  paddingBottom: 12,
+},
+
+chatHeaderBack: {
+  width: 40,
+  height: 40,
+  borderRadius: 12,
+  backgroundColor: "#fff",
+  alignItems: "center",
+  justifyContent: "center",
+  marginRight: 10,
+  borderWidth: 1,
+  borderColor: "#EEF0F3",
+},
+
+chatHeaderTitle: {
+  fontSize: 16,
+  fontWeight: "900",
+  color: "#111827",
+},
+
+chatHeaderSubRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  marginTop: 3,
+},
+
+chatOnlineDot: {
+  width: 8,
+  height: 8,
+  borderRadius: 99,
+  backgroundColor: "#22C55E",
+  marginRight: 6,
+},
+
+chatHeaderSubtitle: {
+  fontSize: 11.5,
+  color: "#6B7280",
+  fontWeight: "600",
+},
+
+chatHeaderIconBtn: {
+  width: 40,
+  height: 40,
+  borderRadius: 12,
+  backgroundColor: "#fff",
+  alignItems: "center",
+  justifyContent: "center",
+  marginLeft: 10,
+  borderWidth: 1,
+  borderColor: "#EEF0F3",
+},
+
+chatQuickWrap: {
+  paddingBottom: 10,
+},
+
+chatQuickPill: {
+  paddingHorizontal: 12,
+  paddingVertical: 10,
+  backgroundColor: "#fff",
+  borderRadius: 999,
+  borderWidth: 1,
+  borderColor: "#EEF0F3",
+  marginRight: 10,
+},
+
+chatQuickText: {
+  fontSize: 12.5,
+  fontWeight: "800",
+  color: "#111827",
+},
+
+chatListContent: {
+  paddingHorizontal: 16,
+  paddingBottom: 14,
+},
+
+chatRow: {
+  flexDirection: "row",
+  alignItems: "flex-end",
+  marginTop: 10,
+},
+
+chatRowLeft: {
+  justifyContent: "flex-start",
+},
+
+chatRowRight: {
+  justifyContent: "flex-end",
+},
+
+chatAvatar: {
+  width: 34,
+  height: 34,
+  borderRadius: 12,
+  backgroundColor: "#fff",
+  borderWidth: 1,
+  borderColor: "#EEF0F3",
+  alignItems: "center",
+  justifyContent: "center",
+  marginRight: 8,
+},
+
+chatBubble: {
+  maxWidth: "78%",
+  borderRadius: 16,
+  paddingHorizontal: 12,
+  paddingVertical: 10,
+},
+
+chatBubbleSupport: {
+  backgroundColor: "#fff",
+  borderWidth: 1,
+  borderColor: "#EEF0F3",
+  borderTopLeftRadius: 8,
+},
+
+chatBubbleUser: {
+  backgroundColor: "#111827",
+  borderTopRightRadius: 8,
+},
+
+chatText: {
+  fontSize: 13.5,
+  lineHeight: 19,
+},
+
+chatTextSupport: {
+  color: "#111827",
+  fontWeight: "600",
+},
+
+chatTextUser: {
+  color: "#fff",
+  fontWeight: "600",
+},
+
+chatTime: {
+  marginTop: 6,
+  fontSize: 10.5,
+  fontWeight: "700",
+},
+
+chatTimeSupport: {
+  color: "#9CA3AF",
+  textAlign: "right",
+},
+
+chatTimeUser: {
+  color: "rgba(255,255,255,0.7)",
+  textAlign: "right",
+},
+
+chatComposerWrap: {
+  flexDirection: "row",
+  alignItems: "flex-end",
+  paddingHorizontal: 16,
+  paddingTop: 10,
+  paddingBottom: Platform.OS === "ios" ? 14 : 12,
+  borderTopWidth: 1,
+  borderTopColor: "#EEF0F3",
+  backgroundColor: "#F8F9FB",
+},
+
+chatAttachBtn: {
+  width: 42,
+  height: 42,
+  borderRadius: 14,
+  backgroundColor: "#fff",
+  borderWidth: 1,
+  borderColor: "#EEF0F3",
+  alignItems: "center",
+  justifyContent: "center",
+  marginRight: 10,
+},
+
+chatInputBox: {
+  flex: 1,
+  minHeight: 42,
+  maxHeight: 110,
+  borderRadius: 16,
+  backgroundColor: "#fff",
+  borderWidth: 1,
+  borderColor: "#EEF0F3",
+  paddingHorizontal: 12,
+  paddingVertical: 10,
+},
+
+chatInput: {
+  fontSize: 14,
+  color: "#111827",
+  fontWeight: "600",
+},
+
+chatSendBtn: {
+  width: 42,
+  height: 42,
+  borderRadius: 14,
+  backgroundColor: "#19955f", // matches your green tone vibe
+  alignItems: "center",
+  justifyContent: "center",
+  marginLeft: 10,
+},
+
+headerCenterTitle: {
+  position: "absolute",
+  left: 0,
+  right: 0,
+  textAlign: "center",
+  alignContent: "center",
+  justifyContent: "center",
+  fontSize: 16,
+  fontWeight: "900",
+  color: "#111827",
+},
+
+headerRightSpacer: {
+  width: 44, // MUST match back button width for perfect centering
+},
+
+
+itemBalance: {
+  fontSize: 12,
+  color: "#6B7280",
+  marginTop: 2,
+  fontWeight: "600",
 },
 
 });
