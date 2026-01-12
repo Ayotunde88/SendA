@@ -95,7 +95,7 @@ slide: {
 
   primaryBtn: {
     width: "100%",
-    height: 58,
+    height: 50,
     paddingVertical: 15,
     borderRadius: 999,
     backgroundColor: "#3c3b3bff",
@@ -178,13 +178,13 @@ slide: {
     borderColor: COLORS.green,
     paddingVertical: 10,
     marginBottom: -20,
-    height: 55,
+    height: 50,
     borderRadius: 999,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "transparent",
   },
-  outlineBtnText: { color: COLORS.green, fontWeight: "400", fontSize: 16 },
+  outlineBtnText: { color: COLORS.green, fontWeight: "600", fontSize: 16 },
 
   moreCircle: {
     marginLeft: 12,
@@ -313,7 +313,7 @@ slide: {
   txSubAmt: { marginTop: 2, color: COLORS.muted, fontWeight: "700" },
 
   // Simple pills
-  filtersRow: { flexDirection: "row", gap: 10, marginTop: 4 },
+  filtersRow: { flexDirection: "row", gap: 10, marginTop: 4,padding: 12 },
   filterPill: { backgroundColor: "#EDEAE7", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999 },
   filterPillActive: { backgroundColor: "#1E1E1E" },
   filterText: { fontWeight: "600", color: "#4B4B4B" },
@@ -1368,11 +1368,7 @@ welcomeTiny: {
 //   justifyContent: "center",
 // },
 
-// outlineBtnText: {
-//   color: "#2FB56A",
-//   fontSize: 18,
-//   fontWeight: "500",
-// },
+
 
 referralIllustration: {
   width: "100%",
@@ -1680,11 +1676,6 @@ checkEmailHint: {
 //   justifyContent: "center",
 // },
 
-outlineBtnText: {
-  color: "#2D9D62",
-  fontWeight: "500",
-  fontSize: 18,
-},
 
 /* -------- Verify Email Card (small card UI) -------- */
 verifyCard: {
@@ -1734,6 +1725,18 @@ verifyProgressFill: {
   width: "18%", // ~1/5
   height: "100%",
   backgroundColor: "#2D9D62",
+  borderRadius: 999,
+},
+verifyProgressHalf: {
+  width: "50%", // ~1/2
+  height: "100%",
+  backgroundColor: "#2D9D62",
+  borderRadius: 999,
+},
+verifyProgressEmpty: {
+  width: "0%", // ~1/2
+  height: "100%",
+  backgroundColor: "#D9D9D9",
   borderRadius: 999,
 },
 
@@ -2597,6 +2600,920 @@ itemBalance: {
   fontWeight: "600",
 },
 
+
+
+recipientScreen: {
+    // flex: 1,
+    width: "100%",
+    // paddingTop: 10,
+    // paddingBottom: 16,
+  },
+
+  recipientHeaderTitle: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: COLORS.text || "#111827",
+    textAlign: "center",
+    flex: 1,
+  },
+
+  helpCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#EDEDED",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  helpCircleText: {
+    fontWeight: "900",
+    color: COLORS.text || "#111827",
+  },
+
+  recipientCard: {
+    // backgroundColor: "#F7F7F7",
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#EFEFEF",
+  },
+
+  formLabel: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#6B7280",
+    marginBottom: 8,
+  },
+
+  // Reusable input wrapper (same look everywhere)
+  inputWrap: {
+    borderWidth: 1,
+    borderColor: "#767778ff",
+    // backgroundColor: "#FFFFFF",
+    borderRadius: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 15,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  inputWrapVerified: {
+    borderColor: COLORS.green 
+  },
+
+  inputText: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "500",
+    color: "#111827",
+  },
+  inputPlaceholderText: {
+    color: "#9CA3AF",
+    fontWeight: "500",
+  },
+
+  textInput: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#111827",
+    padding: 0,
+  },
+
+  verifiedTick: {
+    marginLeft: 10,
+    fontSize: 18,
+    fontWeight: "500",
+    color: COLORS.green,
+  },
+
+  verifiedCard: {
+    marginTop: 10,
+    backgroundColor: "#ECFDF5",
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+  },
+  verifiedCardSmall: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#065F46",
+  },
+  verifiedCardName: {
+    marginTop: 4,
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#065F46",
+  },
+
+//   toggleRow: {
+//     marginTop: 16,
+//     flexDirection: "row",
+//     alignItems: "center",
+//   },
+  toggleTrack: {
+    width: 44,
+    height: 26,
+    borderRadius: 13,
+    padding: 2,
+    justifyContent: "center",
+  },
+  toggleTrackOn: {
+    backgroundColor: "#059669",
+  },
+  toggleTrackOff: {
+    backgroundColor: "#D1D5DB",
+  },
+  toggleKnob: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#FFFFFF",
+  },
+  toggleLabel: {
+    marginLeft: 10,
+    fontSize: 15,
+    fontWeight: "500",
+    color: "#374151",
+  },
+
+  helperHint: {
+    marginTop: 10,
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+
+  bottomArea: {
+    marginTop: 16,
+  },
+
+  /**
+   * Bank Sheet (Bottom modal)
+   */
+  sheetOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "flex-end",
+  },
+//   sheet: {
+//     backgroundColor: "#FFFFFF",
+//     borderTopLeftRadius: 22,
+//     borderTopRightRadius: 22,
+//     paddingBottom: 10,
+//     overflow: "hidden",
+//   },
+  sheetHandle: {
+    alignSelf: "center",
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#E5E7EB",
+    marginTop: 10,
+    marginBottom: 8,
+  },
+//   sheetHeader: {
+//     flexDirection: "row",
+//     alignItems: "center",
+//     paddingHorizontal: 14,
+//     paddingBottom: 10,
+//   },
+//   sheetTitle: {
+//     flex: 1,
+//     textAlign: "center",
+//     fontSize: 16,
+//     fontWeight: "900",
+//     color: "#111827",
+//   },
+  sheetCloseBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetCloseText: {
+    fontSize: 20,
+    fontWeight: "500",
+    color: "#111827",
+  },
+
+  searchWrap: {
+    marginHorizontal: 14,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+  },
+  searchIcon: {
+    fontSize: 18,
+    marginRight: 10,
+    color: "#9CA3AF",
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111827",
+    padding: 0,
+  },
+
+  bankRow: {
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+    backgroundColor: "#FFFFFF",
+  },
+  bankRowSelected: {
+    backgroundColor: "#F0FDF4",
+  },
+  bankRowText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#111827",
+  },
+  bankRowArrow: {
+    fontSize: 22,
+    fontWeight: "900",
+    color: "#16A34A",
+  },
+
+  loadingWrap: {
+    paddingVertical: 24,
+    alignItems: "center",
+  },
+  loadingText: {
+    marginTop: 10,
+    color: "#9CA3AF",
+    fontWeight: "700",
+  },
+
+  recipientListContainer: {
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    flex: 1,
+  },
+
+  recipientListHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+
+  recipientListBackBtn: {
+    paddingVertical: 8,
+    paddingRight: 10,
+  },
+
+  recipientListBackIcon: {
+    fontSize: 22,
+  },
+
+  recipientListTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+  },
+
+  recipientListHelpCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#EDEDED",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  recipientListHelpText: {
+    fontWeight: "800",
+  },
+
+  recipientListSearchWrap: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  recipientListSearchIcon: {
+    fontSize: 18,
+    marginRight: 10,
+    color: "#9CA3AF",
+  },
+
+  recipientListSearchInput: {
+    flex: 1,
+    fontSize: 15,
+  },
+
+  recipientListNewRow: {
+    marginTop: 14,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#EFEFEF",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  recipientListNewIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#EDEDED",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  recipientListNewIconPlus: {
+    fontSize: 24,
+  },
+
+  recipientListNewText: {
+    marginLeft: 12,
+    fontSize: 16,
+    fontWeight: "700",
+  },
+
+  recipientListSectionTitle: {
+    marginTop: 18,
+    marginBottom: 10,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+
+  recipientListRow: {
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  recipientListAvatarCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#3B2461",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  recipientListAvatarText: {
+    color: "#fff",
+    fontWeight: "900",
+  },
+
+  recipientListRowInfo: {
+    marginLeft: 12,
+    flex: 1,
+  },
+
+  recipientListRowName: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#111827",
+  },
+
+  recipientListRowSub: {
+    marginTop: 2,
+    fontSize: 13,
+    color: "#6B7280",
+  },
+
+  recipientListChevron: {
+    color: "#16A34A",
+    fontSize: 22,
+  },
+
+  recipientListEmpty: {
+    textAlign: "center",
+    color: "#9CA3AF",
+    marginTop: 30,
+  },
+
+  recipientListBottomSpacer: {
+    height: 40,
+  },
+headerRow: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  backBtn: {
+    paddingVertical: 8,
+    paddingRight: 12,
+  },
+  backIcon: {
+    fontSize: 22,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: "900",
+    color: "#111827",
+  },
+  subtitle: {
+    marginTop: 2,
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#6B7280",
+  },
+  helpCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#EDEDED",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  helpCircleText: {
+    fontWeight: "900",
+    color: "#111827",
+  },
+  searchWrap: {
+    marginTop: 12,
+    marginHorizontal: 16,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  searchIcon: {
+    fontSize: 18,
+    marginRight: 10,
+    color: "#9CA3AF",
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111827",
+  },
+
+  container: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 16,
+  },
+
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 5,
+  },
+  backBtn: {
+    paddingVertical: 8,
+    paddingRight: 12,
+  },
+  backIcon: {
+    fontSize: 22,
+  },
+
+  sentLabel: {
+    color: "#16A34A",
+    fontWeight: "900",
+    fontSize: 12,
+    textTransform: "lowercase",
+    marginBottom: 8,
+  },
+  bigAmount: {
+    fontSize: 28,
+    fontWeight: "900",
+    color: "#111827",
+  },
+  dateText: {
+    marginTop: 8,
+    color: "#6B7280",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+
+  segmentWrap: {
+    marginTop: 16,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 999,
+    padding: 4,
+    flexDirection: "row",
+  },
+  segmentBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  segmentBtnActive: {
+    backgroundColor: "#fff",
+  },
+  segmentText: {
+    color: "#6B7280",
+    fontWeight: "900",
+    fontSize: 12,
+  },
+  segmentTextActive: {
+    color: "#111827",
+  },
+
+  card: {
+    marginTop: 14,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#EFEFEF",
+  },
+  rowLabel: {
+    color: "#6B7280",
+    fontWeight: "800",
+    fontSize: 12,
+  },
+  rowValue: {
+    color: "#111827",
+    fontWeight: "900",
+    fontSize: 12,
+    maxWidth: "62%",
+    textAlign: "right",
+  },
+
+  divider: {
+    marginTop: 10,
+    marginBottom: 6,
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    opacity: 0.7,
+  },
+
+  statementRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+  },
+  downloadBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "rgba(25,149,95,0.10)",
+  },
+  downloadIcon: {
+    marginRight: 8,
+    color: "#19955f",
+    fontWeight: "900",
+  },
+  downloadText: {
+    color: "#19955f",
+    fontWeight: "900",
+    fontSize: 12,
+  },
+
+  refRow: {
+    marginTop: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingTop: 10,
+  },
+  refText: {
+    marginTop: 6,
+    fontWeight: "900",
+    color: "#111827",
+    fontSize: 12,
+  },
+  copyBtn: {
+    marginLeft: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: "#F3F4F6",
+  },
+  copyText: {
+    fontWeight: "900",
+    color: "#111827",
+    fontSize: 12,
+  },
+
+  bottomArea: {
+    marginTop: 14,
+  },
+  primaryBtnText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 16,
+  },
+ 
+
+  muted: {
+    color: "#6B7280",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+
+  updateRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingVertical: 10,
+  },
+  dot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: "#19955f",
+    marginTop: 4,
+    marginRight: 10,
+  },
+  updateTitle: {
+    fontWeight: "900",
+    color: "#111827",
+    fontSize: 13,
+  },
+  updateSub: {
+    marginTop: 2,
+    color: "#6B7280",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  updateTime: {
+    marginLeft: 10,
+    color: "#9CA3AF",
+    fontWeight: "800",
+    fontSize: 11,
+  },
+  
+  amountCard: {
+    marginHorizontal: 16,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center" as const,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  typeLabel: {
+    fontSize: 14,
+    color: "#6b7280",
+    fontWeight: "600" as const,
+    marginBottom: 8,
+  },
+  amount: {
+    fontSize: 36,
+    fontWeight: "900" as const,
+    marginBottom: 16,
+  },
+  statusBadge: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  statusText: {
+    fontSize: 14,
+    fontWeight: "700" as const,
+    textTransform: "capitalize" as const,
+  },
+  section: {
+    marginHorizontal: 16,
+    marginTop: 20,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: "700" as const,
+    color: "#9CA3AF",
+    textTransform: "uppercase" as const,
+    letterSpacing: 0.5,
+    marginBottom: 12,
+  },
+  detailRow: {
+    flexDirection: "row" as const,
+    justifyContent: "space-between" as const,
+    alignItems: "flex-start" as const,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f3f4f6",
+  },
+  detailLabel: {
+    fontSize: 14,
+    color: "#6b7280",
+    fontWeight: "500" as const,
+  },
+  detailValue: {
+    fontSize: 14,
+    color: "#111827",
+    fontWeight: "600" as const,
+    textAlign: "right" as const,
+    flex: 1,
+    marginLeft: 16,
+  },
+  conversionRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "space-between" as const,
+    marginBottom: 12,
+  },
+  conversionBox: {
+    flex: 1,
+    backgroundColor: "#f9fafb",
+    borderRadius: 10,
+    padding: 12,
+    alignItems: "center" as const,
+  },
+  conversionLabel: {
+    fontSize: 12,
+    color: "#9CA3AF",
+    fontWeight: "600" as const,
+    marginBottom: 4,
+  },
+  conversionAmount: {
+    fontSize: 16,
+    color: "#111827",
+    fontWeight: "800" as const,
+  },
+  conversionArrow: {
+    fontSize: 20,
+    color: "#6b7280",
+    marginHorizontal: 12,
+  },
+  description: {
+    fontSize: 14,
+    color: "#374151",
+    lineHeight: 22,
+  },
+  helpButton: {
+    backgroundColor: "#f3f4f6",
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: "center" as const,
+  },
+  helpButtonText: {
+    color: "#374151",
+    fontWeight: "600" as const,
+    fontSize: 14,
+  },
+/* =========================
+   WALLET - TRANSACTIONS UI
+========================= */
+
+walletTxWrap: {
+  marginTop: 12,
+  paddingHorizontal: 16,
+  flex: 1,
+},
+
+walletTxLoading: {
+  marginTop: 24,
+},
+
+walletTxEmpty: {
+  color: "#9CA3AF",
+  textAlign: "center",
+  marginTop: 24,
+  fontWeight: "800",
+},
+
+walletTxGroupTitle: {
+  marginTop: 14,
+  marginBottom: 8,
+  fontSize: 12,
+  fontWeight: "900",
+  color: "#111827",
+},
+
+walletTxCard: {
+  backgroundColor: "#fff",
+  borderRadius: 14,
+  borderWidth: 1,
+  borderColor: "#E5E7EB",
+  overflow: "hidden",
+},
+
+walletTxRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  paddingHorizontal: 12,
+  paddingVertical: 12,
+},
+
+walletTxDivider: {
+  height: 1,
+  backgroundColor: "#F1F5F9",
+  marginLeft: 52,
+},
+
+walletTxIconWrap: {
+  width: 36,
+  height: 36,
+  borderRadius: 10,
+  backgroundColor: "#F3F4F6",
+  alignItems: "center",
+  justifyContent: "center",
+  marginRight: 10,
+},
+
+walletTxIconText: {
+  fontSize: 14,
+  fontWeight: "900",
+  color: "#111827",
+},
+
+walletTxMid: {
+  flex: 1,
+},
+
+walletTxName: {
+  fontSize: 13,
+  fontWeight: "900",
+  color: "#111827",
+},
+
+walletTxBank: {
+  marginTop: 3,
+  fontSize: 11,
+  fontWeight: "800",
+  color: "#6B7280",
+},
+
+walletTxMetaRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 8,
+  marginTop: 4,
+},
+
+walletTxTime: {
+  fontSize: 11,
+  fontWeight: "800",
+  color: "#6B7280",
+},
+
+walletTxStatus: {
+  fontSize: 11,
+  fontWeight: "900",
+},
+
+walletTxRight: {
+  alignItems: "flex-end",
+},
+
+walletTxAmt: {
+  fontSize: 12,
+  fontWeight: "900",
+  color: "#111827",
+},
+
+walletTxAmtNeg: {
+  color: "#111827",
+},
+
+walletTxAmtPos: {
+  color: "#16A34A",
+},
+
+walletTxStatusCompleted: {
+  color: "#19955f",
+},
+
+walletTxStatusPending: {
+  color: "#B45309",
+},
+
+walletTxStatusFailed: {
+  color: "#EF4444",
+},
+
+  
 });
 
 

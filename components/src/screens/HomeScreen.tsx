@@ -18,8 +18,8 @@ import BottomSheet from "./../../BottomSheet";
 import { styles } from "../../../theme/styles";
 import { COLORS } from "../../../theme/colors";
 import { LinearGradient } from "expo-linear-gradient";
-import { recents } from "../data/MockData";
 import VerifyEmailCard from "../../../components/src/screens/VerifyEmailCardScreen";
+import VerifyIdentityCardScreen from "./VerifyIdentityCardScreen";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
@@ -29,6 +29,7 @@ import {
   getCountries,
   getExchangeRates,
   getTotalBalance,
+  createPlaidIdvSession
 } from "@/api/config";
 import { getNGNBalance } from "../../../api/flutterwave";
 import { Ionicons } from "@expo/vector-icons";
@@ -80,7 +81,23 @@ type HistoricalPoint = {
 
 type RangeKey = "1D" | "5D" | "1M" | "1Y" | "5Y" | "MAX";
 
+/** --- Recipient types (for Recents) --- **/
+type SavedRecipient = {
+  id: string;
+  accountName: string;
+  accountNumber: string;
+  bankCode: string;
+  bankName: string;
+  createdAt: number;
+};
+
+type RecentRecipient = SavedRecipient & {
+  destCurrency: "NGN" | "CAD";
+  lastSentAt: number;
+};
+
 const HIDE_BALANCE_KEY = "hide_balance_preference";
+const RECENT_RECIPIENTS_KEY = "recent_recipients_v1";
 
 /** ---------- Mini chart helpers ---------- **/
 function buildSmoothPath(points: { x: number; y: number }[]) {
@@ -160,7 +177,6 @@ function LiveRateMiniChart({
 
   return (
     <View style={{ marginTop: 10 }}>
-      {/* Top row: ranges (same look as your screenshot, no new stylesheet edits) */}
       <View style={{ flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 2 }}>
         {ranges.map((r) => {
           const active = r === range;
@@ -183,7 +199,6 @@ function LiveRateMiniChart({
         })}
       </View>
 
-      {/* Pair label + change pill */}
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
         <View>
           <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "700" }}>{pairLabel}</Text>
@@ -210,7 +225,6 @@ function LiveRateMiniChart({
         </View>
       </View>
 
-      {/* Chart (IMPORTANT: clip + width:100% so it never extends out of the card) */}
       <View style={{ marginTop: 10, borderRadius: 14, overflow: "hidden", width: "100%" }}>
         {isLoading ? (
           <View style={{ height: chartH, alignItems: "center", justifyContent: "center" }}>
@@ -223,12 +237,7 @@ function LiveRateMiniChart({
             </Text>
           </View>
         ) : (
-          <Svg
-            width={chartW}
-            height={chartH}
-            viewBox={`0 0 ${chartW} ${chartH}`}
-            style={{ width: "100%" }} // ✅ prevents overflow
-          >
+          <Svg width={chartW} height={chartH} viewBox={`0 0 ${chartW} ${chartH}`} style={{ width: "100%" }}>
             <Defs>
               <SvgGradient id="fxFill" x1="0" y1="0" x2="0" y2="1">
                 <Stop offset="0%" stopColor="#19955f" stopOpacity="0.24" />
@@ -266,7 +275,6 @@ function generateMockHistory(baseRate: number, range: RangeKey): HistoricalPoint
   for (let i = points - 1; i >= 0; i--) {
     const t = now - i * stepMs;
 
-    // gentle random walk + a small wave
     const wave = Math.sin((points - i) / 6) * volatility * value;
     const noise = (Math.random() - 0.5) * 2 * volatility * value;
     value = Math.max(0.000001, value + wave + noise);
@@ -278,6 +286,27 @@ function generateMockHistory(baseRate: number, range: RangeKey): HistoricalPoint
     });
   }
   return out;
+}
+
+/** ---------- Recent recipients helpers ---------- **/
+async function getRecentRecipients(): Promise<RecentRecipient[]> {
+  try {
+    const raw = await AsyncStorage.getItem(RECENT_RECIPIENTS_KEY);
+    const list = raw ? (JSON.parse(raw) as RecentRecipient[]) : [];
+    if (!Array.isArray(list)) return [];
+    return list.sort((a, b) => (b.lastSentAt || 0) - (a.lastSentAt || 0));
+  } catch {
+    return [];
+  }
+}
+
+function getInitials(name: string) {
+  return (name || "U")
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase())
+    .join("");
 }
 
 export default function HomeScreen() {
@@ -302,17 +331,24 @@ export default function HomeScreen() {
 
   const [hideBalance, setHideBalance] = useState(false);
 
+  /** ---- Recent recipients state ---- **/
+  const [recentRecipients, setRecentRecipients] = useState<RecentRecipient[]>([]);
+
   /** ---- Live chart state ---- **/
   const [selectedRange, setSelectedRange] = useState<RangeKey>("1M");
   const [fxChartWidth, setFxChartWidth] = useState(0);
   const [historicalPoints, setHistoricalPoints] = useState<HistoricalPoint[]>([]);
   const [chartLoading, setChartLoading] = useState(false);
   const [chartChangePercent, setChartChangePercent] = useState(0);
+  const [emailVerified, setEmailVerified] = useState(false);
+
 
   // Load hide balance preference on mount
   useEffect(() => {
     const loadHideBalancePreference = async () => {
       try {
+        const fetchedEmailVerified = await AsyncStorage.getItem("email_verified");
+        setEmailVerified(fetchedEmailVerified?.toString() === "true");
         const stored = await AsyncStorage.getItem(HIDE_BALANCE_KEY);
         if (stored !== null) setHideBalance(stored === "true");
       } catch (e) {
@@ -386,7 +422,6 @@ export default function HomeScreen() {
       let userHomeCurrency = "";
 
       if (phone) {
-        // profile
         const res = await getUserProfile(phone);
         if (res.success && res.user) {
           setKycStatus(res.user.kycStatus);
@@ -401,12 +436,10 @@ export default function HomeScreen() {
           }
         }
 
-        // accounts
         const accountsRes = await getUserAccounts(phone, true);
         if (accountsRes.success && accountsRes.accounts) {
           userAccounts = accountsRes.accounts;
 
-          // NGN balance override
           const hasNGN = userAccounts.some((a) => (a.currencyCode || "").toUpperCase().trim() === "NGN");
           if (hasNGN) {
             try {
@@ -426,7 +459,6 @@ export default function HomeScreen() {
           setAccounts([]);
         }
 
-        // total balance
         try {
           const totalRes = await getTotalBalance(phone);
           if (totalRes.success) {
@@ -441,7 +473,6 @@ export default function HomeScreen() {
         }
       }
 
-      // exchange rates
       setRatesLoading(true);
       try {
         const currencyCodes = userAccounts
@@ -499,12 +530,24 @@ export default function HomeScreen() {
     useCallback(() => {
       setLoading(true);
       fetchUserData();
+
+      // ✅ Load recent recipients whenever Home is focused
+      (async () => {
+        const list = await getRecentRecipients();
+        setRecentRecipients(list);
+      })();
     }, [fetchUserData])
   );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     fetchUserData();
+
+    // ✅ refresh recents too
+    (async () => {
+      const list = await getRecentRecipients();
+      setRecentRecipients(list);
+    })();
   }, [fetchUserData]);
 
   const handleVerifyEmail = async () => {
@@ -515,6 +558,39 @@ export default function HomeScreen() {
       Alert.alert("Error", "Could not send verification email");
     }
   };
+  const [saving, setSaving] = useState(false);
+  const handleVerifyIdentity = async () => {
+    setSaving(true);
+    
+    try {
+      const phone = await AsyncStorage.getItem("user_phone");
+      if (!phone) {
+        Alert.alert("Error", "Phone number not found.");
+        setSaving(false);
+        return;
+      }
+
+      // Backend fetches user data and creates Plaid IDV session
+      const result = await createPlaidIdvSession({ phone });
+      
+      if (!result.success) {
+        Alert.alert("Error", result.message || "Could not start verification");
+        setSaving(false);
+        return;
+      }
+
+      // Use result.link_token with react-native-plaid-link-sdk
+      // or open result.shareable_url in a WebView
+      console.log("Link token:", result.link_token);
+      console.log("Shareable URL:", result.shareable_url);
+      
+    } catch (error) {
+      Alert.alert("Error", "Could not start identity verification");
+    } finally {
+      setSaving(false);
+    }
+  };
+
 
   const isKycApproved = kycStatus === "verified";
 
@@ -564,20 +640,34 @@ export default function HomeScreen() {
     return !!(code && disabledCurrencies[code]);
   };
 
-  // show first 4 wallet-to-wallet rates
   const visibleRates = useMemo(() => {
     const walletCurrencies = accounts.map((a) => (a.currencyCode || "").toUpperCase().trim());
-    return displayRates
-      .filter((r) => walletCurrencies.includes(r.from) && walletCurrencies.includes(r.to))
-      .slice(0, 4);
+    
+    // Filter to wallet-to-wallet pairs
+    const filtered = displayRates.filter(
+      (r) => walletCurrencies.includes(r.from) && walletCurrencies.includes(r.to)
+    );
+    
+    // Sort: pairs where BOTH currencies are in user's wallets come first,
+    // then by the order they appear in user's wallet list
+    const sorted = filtered.sort((a, b) => {
+      const aFromIndex = walletCurrencies.indexOf(a.from);
+      const aToIndex = walletCurrencies.indexOf(a.to);
+      const bFromIndex = walletCurrencies.indexOf(b.from);
+      const bToIndex = walletCurrencies.indexOf(b.to);
+      
+      // Prioritize pairs starting with user's first wallet currencies
+      if (aFromIndex !== bFromIndex) return aFromIndex - bFromIndex;
+      return aToIndex - bToIndex;
+    });
+    
+    return sorted.slice(0, 4);
   }, [displayRates, accounts]);
 
-  // pick the first visible rate for chart (you can change this later to be "selected")
   const selectedRateObj = useMemo(() => {
     return visibleRates.length > 0 ? visibleRates[0] : null;
   }, [visibleRates]);
 
-  // regenerate chart points when selected pair or range changes
   useEffect(() => {
     if (!selectedRateObj?.numericRate) {
       setHistoricalPoints([]);
@@ -587,7 +677,6 @@ export default function HomeScreen() {
 
     setChartLoading(true);
 
-    // mock history, but shaped nicely (no API required)
     const pts = generateMockHistory(selectedRateObj.numericRate, selectedRange);
     setHistoricalPoints(pts);
 
@@ -609,7 +698,6 @@ export default function HomeScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <ScreenShell padded={false}>
         <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
-          {/* KYC Pending Banner */}
           {!loading && !isKycApproved && (
             <View
               style={{
@@ -637,12 +725,11 @@ export default function HomeScreen() {
               <Text style={{ fontSize: 16 }}>👤</Text>
             </Pressable>
 
-            {/* User Name and Total Balance */}
             <View style={{ marginLeft: 12 }}>
               {userName ? (
                 <Text style={{ fontWeight: "600", fontSize: 14, color: "#222", marginBottom: 2 }}>{userName}</Text>
               ) : null}
-              {/* <Text style={{ color: "#888", fontSize: 11 }}>Total Balance {homeCurrency ? `(${homeCurrency})` : ""}</Text> */}
+              <Text style={{ color: "#888", fontSize: 11 }}>Total Balance {homeCurrency ? `(${homeCurrency})` : ""}</Text>
 
               {ratesLoading && accounts.length > 0 ? (
                 <ActivityIndicator size="small" color={COLORS.primary} />
@@ -772,27 +859,62 @@ export default function HomeScreen() {
             />
           </View>
 
-          {kycStatus === "pending" && <VerifyEmailCard email={email} onPress={handleVerifyEmail} />}
+          {emailVerified.toString() === "true" && <VerifyEmailCard email={email} onPress={handleVerifyEmail} />}
+          {kycStatus === "pending" && <VerifyIdentityCardScreen email={email}  onPress={handleVerifyIdentity} />}
 
+          {/* ✅ Recent Recipients (from AsyncStorage) */}
           <Text style={[styles.sectionTitle, { marginTop: 18, paddingHorizontal: 16 }]}>Recent Recipients</Text>
           <View style={styles.recentRow}>
-            {recents.map((r, idx) => (
-              <Pressable key={idx} style={styles.recentCard} onPress={() => !isKycApproved && handleBlockedAction()}>
-                <View style={styles.recentAvatarWrap}>
-                  <View style={styles.recentAvatar}>
-                    <Text style={{ fontWeight: "800", color: "#323232ff" }}>{r.initials}</Text>
+            {recentRecipients.map((r, idx) => {
+              const initials = getInitials(r.accountName);
+              const flag = r.destCurrency === "NGN" ? "🇳🇬" : "🇨🇦";
+
+              return (
+                <Pressable
+                  key={`${r.destCurrency}-${r.bankCode}-${r.accountNumber}-${idx}`}
+                  style={styles.recentCard}
+                  onPress={() => {
+                    if (!isKycApproved) return handleBlockedAction();
+
+                    // You can change this to your exact send flow route if you want:
+                    router.push({
+                      pathname: "/sendmoney" as any,
+                      params: {
+                        recipient: JSON.stringify(r),
+                        mode: "recent",
+                      },
+                    } as any);
+                  }}
+                >
+                  <View style={styles.recentAvatarWrap}>
+                    <View style={styles.recentAvatar}>
+                      <Text style={{ fontWeight: "800", color: "#323232ff" }}>{initials}</Text>
+                    </View>
+                    <View style={styles.smallFlag}>
+                      <Text>{flag}</Text>
+                    </View>
                   </View>
-                  <View style={styles.smallFlag}>
-                    <Text>{r.flag}</Text>
-                  </View>
-                </View>
-                <Text style={styles.recentName}>{r.name}</Text>
-                {!!r.bank && <Text style={styles.recentBank}>{r.bank}</Text>}
-              </Pressable>
-            ))}
+
+                  <Text style={styles.recentName} numberOfLines={1}>
+                    {r.accountName}
+                  </Text>
+                  {!!r.bankName && (
+                    <Text style={styles.recentBank} numberOfLines={2}>
+                      {r.bankName}
+                    </Text>
+                  )}
+                </Pressable>
+              );
+            })}
+
+            {recentRecipients.length === 0 && (
+              <Text style={{ color: "#9CA3AF", paddingHorizontal: 16, marginTop: 8 }}>
+                No recent recipients yet
+              </Text>
+            )}
           </View>
 
-          <Text style={[styles.sectionTitle, { marginTop: 18, paddingHorizontal: 16 }]}>Exchange Rates</Text>
+          <Text style={[styles.sectionTitle, { marginTop: 18, paddingHorizontal: 16, marginBottom: 8 }]}>Exchange Rates</Text>
           <View style={styles.fxCard}>
             <View style={styles.fxHeader}>
               <View>
@@ -800,7 +922,7 @@ export default function HomeScreen() {
                 <Text style={styles.fxSubtitle}>Mid-market • updates frequently</Text>
               </View>
 
-              <Pressable onPress={() => router.push("/rates")}>
+              <Pressable onPress={() => router.push("/exchangerates")}>
                 <Text style={styles.fxSeeAll}>See all</Text>
               </Pressable>
             </View>
@@ -855,7 +977,6 @@ export default function HomeScreen() {
               })
             )}
 
-            {/* ---- Live chart block (fixed) ---- */}
             {selectedRateObj && (
               <View style={{ paddingHorizontal: 16, paddingBottom: 14 }} onLayout={onFxChartLayout}>
                 {fxChartWidth > 0 && (
@@ -871,7 +992,6 @@ export default function HomeScreen() {
                       isLoading={chartLoading}
                     />
 
-                    {/* Mid-Market disclaimer (you already have styles for this in your app) */}
                     <View style={styles.midMarketBox}>
                       <View style={styles.midMarketRow}>
                         <View style={styles.midMarketIconWrap}>
@@ -940,3 +1060,7 @@ export default function HomeScreen() {
     </SafeAreaView>
   );
 }
+function setSaving(arg0: boolean) {
+  throw new Error("Function not implemented.");
+}
+

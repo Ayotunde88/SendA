@@ -25,6 +25,61 @@ export const api = {
   },
 };
 
+// ============ PLAID IDENTITY VERIFICATION ============
+
+/**
+ * Create Plaid Identity Verification session
+ * Backend fetches user data by phone/email and creates the IDV session
+ */
+export async function createPlaidIdvSession(params: {
+  phone?: string;
+  email?: string;
+}): Promise<{
+  success: boolean;
+  link_token?: string;
+  idv_session_id?: string;
+  shareable_url?: string;
+  user_id?: string;
+  message?: string;
+  error_code?: string;
+}> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/plaid/create-idv-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Failed to create Plaid IDV session:', error);
+    return { success: false, message: 'Failed to start identity verification' };
+  }
+}
+
+/**
+ * Get Plaid IDV session status
+ */
+export async function getPlaidIdvStatus(idvSessionId: string): Promise<{
+  success: boolean;
+  status?: string;
+  steps?: any;
+  user?: any;
+  completed_at?: string;
+  message?: string;
+}> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/plaid/idv-status?idv_session_id=${encodeURIComponent(idvSessionId)}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Failed to get Plaid IDV status:', error);
+    return { success: false, message: 'Failed to get verification status' };
+  }
+}
+
+
 // export async function createPin(phone: string, pin: string) {
 //   const res = await fetch(`${API_BASE_URL}/users/pin`, {
 //     method: "POST",
@@ -157,6 +212,7 @@ export const checkPhoneExists = async (phone: string): Promise<{ exists: boolean
 };
 
 export const login = async (phone: string, password: string): Promise<{
+  suspended: boolean;
     user: any;
     accessToken: any;
     auth_token: any; success: boolean; message: string; token?: string 
@@ -328,17 +384,23 @@ export const getUserAccounts = async (
 };
 
 // In mobile api/config.ts - update getExchangeRates function:
-export const getExchangeRates = async (source?: string, pairs?: string) => {
-  const params = new URLSearchParams();
-  if (source) params.append("source", source);
-  if (pairs) params.append("pairs", pairs);
-  
-  const queryString = params.toString();
-  const url = `${API_BASE_URL}/exchange-rates/public${queryString ? `?${queryString}` : ""}`;
-  
-  const res = await fetch(url);
-  return res.json();
-};
+export async function getExchangeRates(pairs: string): Promise<{
+  success: boolean;
+  rates?: any[];
+  message?: string;
+}> {
+  try {
+    // Use source=live to fetch real-time rates from CurrencyCloud/OXR instead of database overrides
+    const response = await fetch(`${API_BASE_URL}/exchange-rates/public?source=live&pairs=${encodeURIComponent(pairs)}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Failed to fetch exchange rates:', error);
+    return { success: false, rates: [], message: 'Failed to fetch exchange rates' };
+  }
+}
 
 export const getTotalBalance = async (phone: string) => {
   const response = await fetch(`${API_BASE_URL}/currencycloud/user-total-balance?phone=${encodeURIComponent(phone)}`);
@@ -357,12 +419,54 @@ export async function getHistoricalRates(from: string, to: string, range: string
 
 // Get user wallets with balances for conversion
 // Get user wallets with balances for conversion
-export const getUserWallets = async (phone: string) => {
-  const response = await fetch(
-    `${API_BASE_URL}/currencycloud/user/wallets?phone=${encodeURIComponent(phone)}`
-  );
-  return response.json();
-};
+export async function getUserWallets(phone: string): Promise<{
+  success: boolean;
+  wallets: any[];
+  message?: string;
+}> {
+  try {
+    const encodedPhone = encodeURIComponent(phone);
+    // Use /user/wallets with query param - this endpoint correctly uses cc_contact_id for balance scoping
+    const response = await fetch(`${API_BASE_URL}/currencycloud/user/wallets?phone=${encodedPhone}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await response.json();
+    
+    if (data.success && Array.isArray(data.wallets)) {
+      return {
+        success: true,
+        wallets: data.wallets.map((w: any) => ({
+          id: w.id,
+          currencyCode: w.currency_code || w.currencyCode,
+          currencyName: w.currency_name || w.currencyName,
+          countryName: w.country_name || w.countryName,
+          flag: w.flag || '🏳️',
+          symbol: w.symbol || w.currency_code || '',
+          balance: w.balance || 0,
+          formattedBalance: w.formatted_balance || w.formattedBalance || `${w.balance || 0}`,
+          status: w.status || 'active',
+        })),
+      };
+    }
+
+    return {
+      success: false,
+      wallets: [],
+      message: data.message || 'Failed to load wallets',
+    };
+  } catch (error) {
+    console.error('Failed to fetch wallets:', error);
+    return {
+      success: false,
+      wallets: [],
+      message: 'Failed to fetch wallets',
+    };
+  }
+}
 
 // Get conversion quote
 export const getConversionQuote = async (

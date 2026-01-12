@@ -1,0 +1,173 @@
+import { Platform } from 'react-native';
+
+/**
+ * Transactions API - Fetch wallet transactions for mobile app
+ */
+
+const API_BASE_URL =
+  Platform.OS === 'android'
+    ? process.env.EXPO_PUBLIC_API_BASE_URL_ANDROID || 'http://10.0.2.2:5000/api'
+    : process.env.EXPO_PUBLIC_API_BASE_URL_IOS || 'http://127.0.0.1:5000/api';
+
+export interface WalletTransaction {
+  id: number;
+  reference: string;
+  externalReference?: string;
+  transactionType: string;
+  currency: string;
+  amount: number;
+  fromCurrency?: string;
+  toCurrency?: string;
+  fromAmount?: number;
+  toAmount?: number;
+  exchangeRate?: number;
+  counterpartyName?: string;
+  counterpartyAccount?: string;
+  counterpartyBank?: string;
+  status: string;
+  provider?: string;
+  description?: string;
+  feeAmount?: number;
+  feeCurrency?: string;
+  createdAt: string;
+  completedAt?: string;
+  userId?: number;
+  walletId?: number;
+}
+
+export interface TransactionsResponse {
+  success: boolean;
+  transactions: WalletTransaction[];
+  total: number;
+  page: number;
+  pages: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+  message?: string;
+}
+
+/**
+ * Get all transactions for a user by phone number
+ */
+export async function getUserTransactions(
+  phone: string,
+  page = 1,
+  limit = 50,
+  currency?: string
+): Promise<TransactionsResponse> {
+  try {
+    const encodedPhone = encodeURIComponent(phone);
+    let url = `${API_BASE_URL}/wallet-transactions/by-phone?phone=${encodedPhone}&page=${page}&limit=${limit}`;
+    
+    if (currency) {
+      url += `&currency=${currency.toUpperCase()}`;
+    }
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const data = await response.json();
+
+    if (data.success && Array.isArray(data.transactions)) {
+      return {
+        success: true,
+        transactions: data.transactions.map(normalizeTransaction),
+        total: data.total || data.transactions.length,
+        page: data.page || page,
+        pages: data.pages || 1,
+        hasNext: data.hasNext || false,
+        hasPrev: data.hasPrev || false,
+      };
+    }
+
+    return {
+      success: false,
+      transactions: [],
+      total: 0,
+      page: 1,
+      pages: 0,
+      hasNext: false,
+      hasPrev: false,
+      message: data.message || 'Failed to fetch transactions',
+    };
+  } catch (error) {
+    console.error('Failed to fetch user transactions:', error);
+    return {
+      success: false,
+      transactions: [],
+      total: 0,
+      page: 1,
+      pages: 0,
+      hasNext: false,
+      hasPrev: false,
+      message: 'Failed to fetch transactions',
+    };
+  }
+}
+
+/**
+ * Get a single transaction by reference
+ */
+export async function getTransactionByReference(
+  reference: string
+): Promise<{ success: boolean; transaction?: WalletTransaction; message?: string }> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/wallet-transactions/${encodeURIComponent(reference)}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const data = await response.json();
+
+    if (data.success && data.transaction) {
+      return {
+        success: true,
+        transaction: normalizeTransaction(data.transaction),
+      };
+    }
+
+    return {
+      success: false,
+      message: data.message || 'Transaction not found',
+    };
+  } catch (error) {
+    console.error('Failed to fetch transaction:', error);
+    return {
+      success: false,
+      message: 'Failed to fetch transaction',
+    };
+  }
+}
+
+/**
+ * Normalize transaction data from backend (snake_case to camelCase)
+ */
+function normalizeTransaction(tx: any): WalletTransaction {
+  return {
+    id: tx.id,
+    reference: tx.reference,
+    externalReference: tx.external_reference || tx.externalReference,
+    transactionType: tx.transaction_type || tx.transactionType,
+    currency: tx.currency,
+    amount: parseFloat(tx.amount) || 0,
+    fromCurrency: tx.from_currency || tx.fromCurrency,
+    toCurrency: tx.to_currency || tx.toCurrency,
+    fromAmount: tx.from_amount || tx.fromAmount ? parseFloat(tx.from_amount || tx.fromAmount) : undefined,
+    toAmount: tx.to_amount || tx.toAmount ? parseFloat(tx.to_amount || tx.toAmount) : undefined,
+    exchangeRate: tx.exchange_rate || tx.exchangeRate ? parseFloat(tx.exchange_rate || tx.exchangeRate) : undefined,
+    counterpartyName: tx.counterparty_name || tx.counterpartyName,
+    counterpartyAccount: tx.counterparty_account || tx.counterpartyAccount,
+    counterpartyBank: tx.counterparty_bank || tx.counterpartyBank,
+    status: tx.status,
+    provider: tx.provider,
+    description: tx.description,
+    feeAmount: tx.fee_amount || tx.feeAmount ? parseFloat(tx.fee_amount || tx.feeAmount) : undefined,
+    feeCurrency: tx.fee_currency || tx.feeCurrency,
+    createdAt: tx.created_at || tx.createdAt,
+    completedAt: tx.completed_at || tx.completedAt,
+    userId: tx.user_id || tx.userId,
+    walletId: tx.wallet_id || tx.walletId,
+  };
+}

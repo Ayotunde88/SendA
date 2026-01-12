@@ -14,6 +14,7 @@ import ScreenShell from "../../../../components/ScreenShell";
 import { styles } from "../../../../theme/styles";
 import { COLORS } from "../../../../theme/colors";
 import { resendEmailOtp, verifyEmailOtp } from "@/api/config";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const CODE_LEN = 6;
 const RESEND_SECONDS = 45;
@@ -21,7 +22,7 @@ const RESEND_SECONDS = 45;
 export default function CheckEmailCodeScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-
+  const [emailVerified, setEmailVerified] = useState(false);
   // ✅ email from params can be string | string[] | undefined
   const email = useMemo(() => {
     const e = params.email;
@@ -114,6 +115,9 @@ export default function CheckEmailCodeScreen() {
       console.log("Verify email OTP:", { email, code: codeValue });
 
       router.replace("/homeaddress");
+
+      setEmailVerified(true);
+      await AsyncStorage.setItem("email_verified", emailVerified.toString());
     } catch (err: any) {
       console.log(getErrorMessage(err));
 

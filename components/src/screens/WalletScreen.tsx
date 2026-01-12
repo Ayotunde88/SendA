@@ -179,11 +179,14 @@ export default function WalletScreen() {
   return (
     <ScreenShell>
       <View style={styles.centerHeader}>
-        <View style={styles.simpleHeader}>
+        <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={styles.backBtn}>
             <Text style={styles.backIcon}>←</Text>
           </Pressable>
-          <View style={{ flex: 1 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>Wallet</Text>
+            {/* <Text style={styles.subtitle}>Send Money To Other Wallet</Text> */}
+          </View>
         </View>
         <Text style={styles.flagBig}>{account.flag}</Text>
         <Text style={styles.walletTitle}>{account.currencyCode} balance</Text>
@@ -248,64 +251,130 @@ export default function WalletScreen() {
       </View>
 
       {tab === "Transactions" ? (
-        <View style={{ marginTop: 12, paddingHorizontal: 16, flex: 1 }}>
+        <View >
           {isNGN ? (
-            // NGN transactions (Flutterwave payouts)
             loadingTransactions ? (
-              <ActivityIndicator size="small" color={COLORS.primary} style={{ marginTop: 24 }} />
+              <ActivityIndicator size="small" color={COLORS.primary} style={styles.walletTxLoading} />
             ) : ngnTransactions.length === 0 ? (
-              <Text style={{ color: "#888", textAlign: "center", marginTop: 24 }}>
-                No transactions yet
-              </Text>
+              <Text style={styles.walletTxEmpty}>No transactions yet</Text>
             ) : (
               <ScrollView showsVerticalScrollIndicator={false}>
-                {ngnTransactions.map((tx) => (
-                  <View 
-                    key={tx.id} 
-                    style={{ 
-                      backgroundColor: "#F8F8F8", 
-                      borderRadius: 12, 
-                      padding: 16, 
-                      marginBottom: 12 
-                    }}
-                  >
-                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontWeight: "700", fontSize: 16, color: "#2D2D2D" }}>
-                          {tx.recipientName}
-                        </Text>
-                        <Text style={{ color: "#888", fontSize: 13, marginTop: 2 }}>
-                          {tx.recipientBank}
-                        </Text>
-                        <Text style={{ color: "#888", fontSize: 12, marginTop: 4 }}>
-                          {formatDate(tx.createdAt)}
-                        </Text>
-                      </View>
-                      <View style={{ alignItems: "flex-end" }}>
-                        <Text style={{ fontWeight: "700", fontSize: 16, color: "#2D2D2D" }}>
-                          -₦{tx.amount.toLocaleString()}
-                        </Text>
-                        <Text style={{ 
-                          fontSize: 12, 
-                          color: getStatusColor(tx.status),
-                          fontWeight: "600",
-                          marginTop: 4
-                        }}>
-                          {tx.status}
-                        </Text>
+                {(() => {
+                  // --- Group transactions by formatted date (e.g. "Jan 12, 2026") ---
+                  const groups = ngnTransactions.reduce<Record<string, NGNTransaction[]>>((acc, tx) => {
+                    const key = formatDate(tx.createdAt);
+                    if (!acc[key]) acc[key] = [];
+                    acc[key].push(tx);
+                    return acc;
+                  }, {});
+
+                  // Sort groups by date (newest first)
+                  const groupEntries = Object.entries(groups).sort((a, b) => {
+                    const da = new Date(a[0]).getTime();
+                    const db = new Date(b[0]).getTime();
+                    return db - da;
+                  });
+
+                  // Sort each group by createdAt (newest first)
+                  groupEntries.forEach(([k, arr]) => {
+                    arr.sort((x, y) => new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime());
+                  });
+
+                  const normalizeStatus = (s: string) => {
+                    const x = String(s || "").toLowerCase().trim();
+                    if (x.includes("complete") || x.includes("success")) return "completed";
+                    if (x.includes("pend") || x.includes("process") || x.includes("queue")) return "pending";
+                    if (x.includes("fail") || x.includes("error") || x.includes("cancel")) return "failed";
+                    return "pending";
+                  };
+
+                  const statusLabel = (s: string) => {
+                    const key = normalizeStatus(s);
+                    if (key === "completed") return "Completed";
+                    if (key === "pending") return "Processing";
+                    return "Failed";
+                  };
+
+                  return groupEntries.map(([dateLabel, items]) => (
+                    <View key={dateLabel}>
+                      <Text style={styles.walletTxGroupTitle}>{dateLabel}</Text>
+
+                      <View style={styles.walletTxCard}>
+                        {items.map((tx, idx) => {
+                          const sKey = normalizeStatus(tx.status);
+                          const statusStyle =
+                            sKey === "completed"
+                              ? styles.walletTxStatusCompleted
+                              : sKey === "failed"
+                              ? styles.walletTxStatusFailed
+                              : styles.walletTxStatusPending;
+
+                          return (
+                            <View key={tx.id}>
+                              <Pressable
+                                style={styles.walletTxRow}
+                                onPress={() => {
+                                  // OPTIONAL: route to details later
+                                  // router.push({ pathname: "/transaction-details", params: { tx: JSON.stringify(tx) } } as any);
+                                }}
+                              >
+                                <View style={styles.walletTxIconWrap}>
+                                  <Text style={styles.walletTxIconText}>⇄</Text>
+                                </View>
+
+                                <View style={styles.walletTxMid}>
+                                  <Text style={styles.walletTxName} numberOfLines={1}>
+                                    {tx.recipientName}
+                                  </Text>
+
+                                  <Text style={styles.walletTxBank} numberOfLines={1}>
+                                    {tx.recipientBank}
+                                  </Text>
+
+                                  <View style={styles.walletTxMetaRow}>
+                                    <Text style={styles.walletTxTime}>
+                                      {new Date(tx.createdAt).toLocaleTimeString("en-US", {
+                                        hour: "numeric",
+                                        minute: "2-digit",
+                                      })}
+                                    </Text>
+
+                                    <Text style={[styles.walletTxStatus, statusStyle]}>
+                                      • {statusLabel(tx.status)}
+                                    </Text>
+                                  </View>
+                                </View>
+
+                                <View style={styles.walletTxRight}>
+                                  <Text style={[styles.walletTxAmt, styles.walletTxAmtNeg]}>
+                                    -₦{Number(tx.amount || 0).toLocaleString()}
+                                  </Text>
+
+                                  {/* If you want a second line for status color (like older UI), uncomment:
+                                  <Text style={[styles.walletTxStatus, { marginTop: 4, color: getStatusColor(tx.status) }]}>
+                                    {statusLabel(tx.status)}
+                                  </Text>
+                                  */}
+                                </View>
+                              </Pressable>
+
+                              {idx !== items.length - 1 && <View style={styles.walletTxDivider} />}
+                            </View>
+                          );
+                        })}
                       </View>
                     </View>
-                  </View>
-                ))}
+                  ));
+                })()}
+                <View style={{ height: 18 }} />
               </ScrollView>
             )
           ) : (
-            <Text style={{ color: "#888", textAlign: "center", marginTop: 24 }}>
-              No transactions yet
-            </Text>
+            <Text style={styles.walletTxEmpty}>No transactions yet</Text>
           )}
         </View>
       ) : (
+        // ... keep your Account details section as-is
         <View style={{ marginTop: 18 }}>
           <Text style={styles.sectionTitle}>Account details</Text>
           <View style={styles.detailsCard}>
@@ -322,6 +391,7 @@ export default function WalletScreen() {
           </View>
         </View>
       )}
+
     </ScreenShell>
   );
 }

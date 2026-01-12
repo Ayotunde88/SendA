@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React,{useEffect} from "react";
 import { View, Text, Pressable, Image } from "react-native";
 import { styles } from "../../../theme/styles";
 import { useRouter } from "expo-router";
@@ -9,16 +9,9 @@ interface Props {
   email: string;
 }
 
-export default function VerifyEmailCardScreen({ onPress, email }: Props) {
+export default function VerifyIdentityCardScreen({ onPress, email }: Props) {
     const router = useRouter();
-    const [emailVerified, setEmailVerified] = React.useState(false);
-    useEffect(()=>{
-      const checkEmailVerification = async () => {
-        const emailVerified = await AsyncStorage.getItem("email_verified");
-        setEmailVerified(emailVerified === "true");
-      };
-      checkEmailVerification();
-    }, []);
+    
   return (
     <View style={styles.verifyCard}>
       <View style={styles.verifyCardLeft}>
@@ -26,12 +19,12 @@ export default function VerifyEmailCardScreen({ onPress, email }: Props) {
 
         <Text style={styles.verifyBigTitle}>Verify your email</Text>
 
-        <View style={styles.verifyProgressRow}>
+        {/* <View style={styles.verifyProgressRow}>
           <View style={styles.verifyProgressTrack}>
-            <View style={emailVerified ? styles.verifyProgressFill : styles.verifyProgressEmpty} />
+            <View style={styles.verifyProgressFill} />
           </View>
-          <Text style={styles.verifyProgressText}>{emailVerified ? "2 / 2 completed" : "1 / 2 completed"}</Text>
-        </View>
+          <Text style={styles.verifyProgressText}>1 / 5 completed</Text>
+        </View> */}
 
         <Pressable style={styles.verifyCardBtn} onPress={onPress}>
           <Text style={styles.verifyCardBtnText}>Verify email</Text>
@@ -39,7 +32,7 @@ export default function VerifyEmailCardScreen({ onPress, email }: Props) {
       </View>
 
       <Image
-        source={require("../../../assets/images/icons/email_sent.png")}
+        source={require("../../../assets/images/icons/identity_verification.png")}
         style={styles.verifyCardIcon}
         resizeMode="contain"
       />

@@ -16,24 +16,44 @@ export default function RootLayout() {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const token = await AsyncStorage.getItem("auth_token");
-      const firstSegment = segments[0];
-      
-      // Auth screens that don't require login
-      const authScreens = ["login", "get-started", "verifynumber", "setpin", "basicinfo", "protectpassword", "globalaccount"];
-      const isAuthScreen = authScreens.includes(firstSegment as string);
+      try {
+        const token = await AsyncStorage.getItem("auth_token");
 
-      if (!token && !isAuthScreen) {
+        // ✅ In expo-router, segments[0] is the top-level route group/segment
+        const firstSegment = segments?.[0] ?? "";
+
+        // ✅ MUST match your actual route names exactly
+        // Add every screen you want accessible without token.
+        const publicScreens = new Set([
+          "login",
+          "getstarted",        // ✅ matches <Stack.Screen name="getstarted" />
+          "resetpassword",
+          "verifynumber",
+          "setpin",
+          "basicinfo",
+          "protectpassword",
+          "globalaccount",
+        ]);
+
+        const isPublicScreen = publicScreens.has(String(firstSegment));
+
+        // If not authenticated, block access to private routes
+        if (!token && !isPublicScreen) {
+          router.replace("/login");
+        }
+
+        setAuthChecked(true);
+      } catch (e) {
+        // If anything fails, fall back to login
         router.replace("/login");
+        setAuthChecked(true);
       }
-      
-      setAuthChecked(true);
     };
 
     if (fontsLoaded) {
       checkAuth();
     }
-  }, [fontsLoaded, segments]);
+  }, [fontsLoaded, segments, router]);
 
   if (!fontsLoaded || !authChecked) return null;
 
@@ -44,13 +64,13 @@ export default function RootLayout() {
         headerStyle: { backgroundColor: COLORS.bg },
         contentStyle: { backgroundColor: COLORS.bg },
         headerTitleStyle: { fontWeight: "900" },
-        headerShown: false
+        headerShown: false,
       }}
     >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="get-started" options={{ title: "Get Started", headerShown: false }} />
+      <Stack.Screen name="getstarted" options={{ title: "Get Started", headerShown: false }} />
       <Stack.Screen name="login" />
-      <Stack.Screen name="reset-password" options={{ title: "Reset Password" }} />
+      <Stack.Screen name="resetpassword" options={{ title: "Reset Password" }} />
       <Stack.Screen name="profile" options={{ title: "Profile" }} />
       <Stack.Screen name="bank-details" options={{ title: "Bank Details" }} />
       <Stack.Screen name="basicinfo" options={{ title: "Basic Information" }} />
@@ -67,7 +87,10 @@ export default function RootLayout() {
       <Stack.Screen name="send-money" options={{ title: "Send money" }} />
       <Stack.Screen name="add-money-methods" options={{ title: "" }} />
       <Stack.Screen name="convert" options={{ title: "Convert" }} />
+      <Stack.Screen name="exchangerates" options={{ title: "Exchange Rates" }} />
       <Stack.Screen name="all-transactions" options={{ title: "Transactions" }} />
+      <Stack.Screen name="transactiondetail/[reference]" options={{ title: "Transaction Details" }} />
+
       <Stack.Screen name="send-money-ngn" options={{ title: "Send money" }} />
       <Stack.Screen name="recipients" options={{ title: "" }} />
       <Stack.Screen name="recipient-details" options={{ title: "" }} />

@@ -1,6 +1,13 @@
 import React, { useState } from "react";
-import { View, Text, Pressable, Modal, FlatList, TextInput, StyleSheet } from "react-native";
-import { COLORS } from "../theme/colors";
+import {
+  View,
+  Text,
+  Pressable,
+  Modal,
+  FlatList,
+  TextInput,
+  StyleSheet,
+} from "react-native";
 import { styles } from "../theme/styles";
 
 export interface Wallet {
@@ -41,10 +48,7 @@ export default function CurrencyPickerModal({
   );
 
   const handleSelect = (wallet: Wallet) => {
-    if (wallet.status === "disabled") {
-      // Could show alert here
-      return;
-    }
+    if (wallet.status === "disabled") return;
     onSelect(wallet);
     onClose();
     setSearch("");
@@ -83,26 +87,36 @@ export default function CurrencyPickerModal({
                 onPress={() => handleSelect(item)}
               >
                 <Text style={styles.itemFlag}>{item.flag}</Text>
+
                 <View style={styles.itemInfo}>
                   <Text style={styles.itemName}>
                     {item.currencyCode} - {item.countryName || item.currencyName}
                   </Text>
-                  <Text style={styles.itemBalance}>
+
+                  {/* ✅ FIX: don't use styles.itemBalance since it's not defined in theme/styles */}
+                  <Text style={modalStyles.itemBalance}>
                     Balance: {item.formattedBalance}
                     {item.status === "disabled" && " (Disabled)"}
                   </Text>
                 </View>
+
                 {item.currencyCode === selected?.currencyCode && (
                   <Text style={styles.checkmark}>✓</Text>
                 )}
               </Pressable>
             )}
-            ListEmptyComponent={
-              <Text style={styles.emptyText}>No currencies found</Text>
-            }
+            ListEmptyComponent={<Text style={styles.emptyText}>No currencies found</Text>}
           />
         </Pressable>
       </Pressable>
     </Modal>
   );
 }
+
+const modalStyles = StyleSheet.create({
+  itemBalance: {
+    marginTop: 4,
+    fontSize: 13,
+    color: "#6B7280",
+  },
+});

@@ -451,17 +451,15 @@ export default function ConvertScreen() {
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={{ flex: 1 }}
         >
-          <View style={styles.simpleHeader}>
+          <View style={styles.headerRow}>
             <Pressable onPress={() => router.back()} style={styles.backBtn}>
               <Text style={styles.backIcon}>←</Text>
             </Pressable>
-            <View style={{ flex: 1 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>Convert Currency</Text>
+              <Text style={styles.subtitle}>Convert money from one currency to another</Text>
+            </View>
           </View>
-
-          <Text style={[styles.bigTitle, { marginTop: 8 }]}>Convert Currency</Text>
-          <Text style={styles.convertHint}>
-            Convert money from one currency to another
-          </Text>
 
           {/* FROM Section */}
           <View style={styles.convertBox}>
