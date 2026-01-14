@@ -31,7 +31,7 @@ import {
   getTotalBalance,
   createPlaidIdvSession
 } from "@/api/config";
-import { getNGNBalance } from "../../../api/flutterwave";
+import { getLocalBalance } from "../../../api/flutterwave";
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Path, Defs, LinearGradient as SvgGradient, Stop, Circle } from "react-native-svg";
 
@@ -54,12 +54,15 @@ type UserAccount = {
   iban?: string;
   bicSwift?: string;
   status?: string;
+  isExotic?: boolean;
   currency?: {
     code: string;
     name: string;
     countryName?: string;
     flag?: string;
     symbol?: string;
+    isExotic?: boolean;
+    is_exotic?: boolean;
   } | null;
 };
 
@@ -98,6 +101,9 @@ type RecentRecipient = SavedRecipient & {
 
 const HIDE_BALANCE_KEY = "hide_balance_preference";
 const RECENT_RECIPIENTS_KEY = "recent_recipients_v1";
+
+// Known exotic currencies - fallback if backend doesn't return isExotic flag
+const KNOWN_EXOTIC_CURRENCIES = ['NGN', 'GHS', 'RWF', 'UGX', 'TZS', 'ZMW', 'XOF', 'XAF'];
 
 /** ---------- Mini chart helpers ---------- **/
 function buildSmoothPath(points: { x: number; y: number }[]) {
@@ -318,6 +324,7 @@ export default function HomeScreen() {
   const [kycStatus, setKycStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const [accounts, setAccounts] = useState<UserAccount[]>([]);
   const [flagsByCurrency, setFlagsByCurrency] = useState<Record<string, string>>({});
@@ -341,7 +348,6 @@ export default function HomeScreen() {
   const [chartLoading, setChartLoading] = useState(false);
   const [chartChangePercent, setChartChangePercent] = useState(0);
   const [emailVerified, setEmailVerified] = useState(false);
-
 
   // Load hide balance preference on mount
   useEffect(() => {
@@ -440,17 +446,62 @@ export default function HomeScreen() {
         if (accountsRes.success && accountsRes.accounts) {
           userAccounts = accountsRes.accounts;
 
-          const hasNGN = userAccounts.some((a) => (a.currencyCode || "").toUpperCase().trim() === "NGN");
-          if (hasNGN) {
+          console.log('[HomeScreen] Accounts from API:', userAccounts.map(a => ({
+            code: a.currencyCode,
+            isExotic: a.isExotic,
+            balance: a.balance
+          })));
+
+          // Ensure ALL exotic currencies reflect the local ledger balance (not CurrencyCloud)
+          // Use both the backend flag (check both snake_case and camelCase) AND known exotic list as fallback
+          const localLedgerAccounts = userAccounts.filter((a: any) => {
+            const code = (a.currencyCode || a.currency_code || "").toUpperCase().trim();
+            // Check all possible property names for exotic flag
+            const backendExotic = Boolean(
+              a.isExotic || 
+              a.is_exotic || 
+              a.currency?.isExotic || 
+              a.currency?.is_exotic
+            );
+            const knownExotic = KNOWN_EXOTIC_CURRENCIES.includes(code);
+            const isExotic = backendExotic || knownExotic;
+
+            console.log(`[HomeScreen] Checking ${code}: backendExotic=${backendExotic}, knownExotic=${knownExotic}, final=${isExotic}`);
+            return isExotic;
+          });
+
+          console.log('[HomeScreen] Local ledger accounts to fetch:', localLedgerAccounts.map(a => a.currencyCode));
+
+          if (localLedgerAccounts.length > 0) {
             try {
-              const ngnRes = await getNGNBalance(phone);
-              if (ngnRes.success) {
-                userAccounts = userAccounts.map((a) =>
-                  (a.currencyCode || "").toUpperCase().trim() === "NGN" ? { ...a, balance: ngnRes.balance } : a
-                );
+              const results = await Promise.all(
+                localLedgerAccounts.map(async (a) => {
+                  const ccy = (a.currencyCode || "").toUpperCase().trim();
+                  console.log(`[HomeScreen] Fetching local balance for ${ccy}...`);
+                  const res = await getLocalBalance(phone, ccy);
+                  console.log(`[HomeScreen] Local balance for ${ccy}:`, res);
+                  return { ccy, res };
+                })
+              );
+
+              const balanceByCurrency = new Map<string, number>();
+              for (const { ccy, res } of results) {
+                if (res?.success) {
+                  balanceByCurrency.set(ccy, Number(res.balance || 0));
+                }
               }
+
+              console.log('[HomeScreen] Balance map:', Object.fromEntries(balanceByCurrency));
+
+              userAccounts = userAccounts.map((a) => {
+                const ccy = (a.currencyCode || "").toUpperCase().trim();
+                if (balanceByCurrency.has(ccy)) {
+                  return { ...a, balance: balanceByCurrency.get(ccy)!, isExotic: true };
+                }
+                return a;
+              });
             } catch (e) {
-              console.log("Failed to fetch NGN local balance:", e);
+              console.log("Failed to fetch local ledger balances:", e);
             }
           }
 
@@ -558,7 +609,7 @@ export default function HomeScreen() {
       Alert.alert("Error", "Could not send verification email");
     }
   };
-  const [saving, setSaving] = useState(false);
+
   const handleVerifyIdentity = async () => {
     setSaving(true);
     
@@ -590,7 +641,6 @@ export default function HomeScreen() {
       setSaving(false);
     }
   };
-
 
   const isKycApproved = kycStatus === "verified";
 
@@ -729,7 +779,6 @@ export default function HomeScreen() {
               {userName ? (
                 <Text style={{ fontWeight: "600", fontSize: 14, color: "#222", marginBottom: 2 }}>{userName}</Text>
               ) : null}
-              <Text style={{ color: "#888", fontSize: 11 }}>Total Balance {homeCurrency ? `(${homeCurrency})` : ""}</Text>
 
               {ratesLoading && accounts.length > 0 ? (
                 <ActivityIndicator size="small" color={COLORS.primary} />
@@ -853,14 +902,13 @@ export default function HomeScreen() {
               style={{ flex: 1 }}
             />
             <OutlineButton
-              title="Add Money"
+              title={`+ Add Money`}
               onPress={() => (isKycApproved ? setSheetOpen(true) : handleBlockedAction())}
               style={{ flex: 1, marginLeft: 12 }}
             />
           </View>
 
-          {emailVerified.toString() === "true" && <VerifyEmailCard email={email} onPress={handleVerifyEmail} />}
-          {kycStatus === "pending" && <VerifyIdentityCardScreen email={email}  onPress={handleVerifyIdentity} />}
+          {kycStatus === "pending" && <VerifyEmailCard email={email} onPress={handleVerifyEmail} />}
 
           {/* ✅ Recent Recipients (from AsyncStorage) */}
           <Text style={[styles.sectionTitle, { marginTop: 18, paddingHorizontal: 16 }]}>Recent Recipients</Text>
@@ -876,7 +924,6 @@ export default function HomeScreen() {
                   onPress={() => {
                     if (!isKycApproved) return handleBlockedAction();
 
-                    // You can change this to your exact send flow route if you want:
                     router.push({
                       pathname: "/sendmoney" as any,
                       params: {
@@ -1060,7 +1107,3 @@ export default function HomeScreen() {
     </SafeAreaView>
   );
 }
-function setSaving(arg0: boolean) {
-  throw new Error("Function not implemented.");
-}
-

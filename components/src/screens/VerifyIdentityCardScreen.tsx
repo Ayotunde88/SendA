@@ -17,7 +17,7 @@ export default function VerifyIdentityCardScreen({ onPress, email }: Props) {
       <View style={styles.verifyCardLeft}>
         <Text style={styles.verifySmallTitle}>Finish setting up your account</Text>
 
-        <Text style={styles.verifyBigTitle}>Verify your email</Text>
+        <Text style={styles.verifyBigTitle}>Verify Identity</Text>
 
         {/* <View style={styles.verifyProgressRow}>
           <View style={styles.verifyProgressTrack}>
@@ -27,7 +27,7 @@ export default function VerifyIdentityCardScreen({ onPress, email }: Props) {
         </View> */}
 
         <Pressable style={styles.verifyCardBtn} onPress={onPress}>
-          <Text style={styles.verifyCardBtnText}>Verify email</Text>
+          <Text style={styles.verifyCardBtnText}>Verify</Text>
         </Pressable>
       </View>
 

@@ -19,14 +19,14 @@ export default function RootLayout() {
       try {
         const token = await AsyncStorage.getItem("auth_token");
 
-        // ✅ In expo-router, segments[0] is the top-level route group/segment
-        const firstSegment = segments?.[0] ?? "";
+        // segments could be ["(tabs)"] or ["(auth)","verifynumber"] etc.
+        const first = String(segments?.[0] ?? "");
+        const second = String(segments?.[1] ?? "");
 
-        // ✅ MUST match your actual route names exactly
-        // Add every screen you want accessible without token.
+        // ✅ Any screens you want accessible without token
         const publicScreens = new Set([
           "login",
-          "getstarted",        // ✅ matches <Stack.Screen name="getstarted" />
+          "getstarted",
           "resetpassword",
           "verifynumber",
           "setpin",
@@ -35,24 +35,25 @@ export default function RootLayout() {
           "globalaccount",
         ]);
 
-        const isPublicScreen = publicScreens.has(String(firstSegment));
+        // // ✅ Allow if current route is public (either in first or second segment)
+        const isPublic = publicScreens.has(first) || publicScreens.has(second);
+
+        // ✅ If you are using a route group for auth like "(auth)", allow that group too
+        const isAuthGroup = first === "(auth)";
 
         // If not authenticated, block access to private routes
-        if (!token && !isPublicScreen) {
+        if (!token && !(isPublic || isAuthGroup)) {
           router.replace("/login");
         }
 
         setAuthChecked(true);
       } catch (e) {
-        // If anything fails, fall back to login
         router.replace("/login");
         setAuthChecked(true);
       }
     };
 
-    if (fontsLoaded) {
-      checkAuth();
-    }
+    if (fontsLoaded) checkAuth();
   }, [fontsLoaded, segments, router]);
 
   if (!fontsLoaded || !authChecked) return null;

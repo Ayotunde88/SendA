@@ -239,8 +239,8 @@ slide: {
 
   // Bottom sheet
   sheetBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)" },
-  sheetContainer: { position: "absolute", left: 0, right: 0, bottom: 0 },
-  sheet: { backgroundColor: "#FFFFFF", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 16, paddingBottom: 24 },
+  sheetContainer: { position: "relative", left: 0, right: 0, bottom: 0 },
+  sheet: {  borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 16, paddingBottom: 24 },
   sheetClose: {
     position: "absolute",
     left: 14,
@@ -250,18 +250,29 @@ slide: {
     borderRadius: 17,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#F3F3F3",
+    
   },
-  sheetTitle: { textAlign: "center", fontWeight: "600", fontSize: 18, marginBottom: 10 },
+  sheetTitle: { textAlign: "center", fontWeight: "600", fontSize: 18, marginBottom: 10, marginTop: 15 },
   sheetRow: {
-    backgroundColor: "#F6F6F6",
-    borderRadius: 16,
+    width: "100%",
+    backgroundColor: "#ffffffff",
+    borderColor: "transparent",
+    borderWidth: 1,
+    borderLeftWidth: 0,
+    borderRightWidth: 0,
+    borderRadius: 9,
     padding: 14,
     flexDirection: "row",
     alignItems: "center",
+    textAlign: "center",
     justifyContent: "space-between",
     marginTop: 12,
   },
+  sheetContent: {
+  paddingHorizontal: 16,
+  paddingTop: 14,
+  paddingBottom: 18,
+},
   sheetRowLeft: { flexDirection: "row", alignItems: "center" },
   sheetRowTitle: { fontWeight: "500" },
   sheetRowSub: { color: COLORS.muted, fontWeight: "700" },
@@ -692,8 +703,9 @@ accountCardGradient: {
   width: 210,
   borderRadius: 10,
   padding: 20,
-  position: "relative", // ✅ REQUIRED
-  overflow: "hidden",   // keeps image inside rounded corners
+  position: "relative", 
+  overflow: "hidden",
+  height: 140,
 },
 
 accountLabelWhite: {
@@ -1520,6 +1532,9 @@ trigger: {
     borderTopRightRadius: 20,
     maxHeight: "80%",
     paddingBottom: 30,
+    position: "absolute",
+    width: "100%",
+    bottom: 0,
   },
   header: {
     flexDirection: "row",
@@ -3284,7 +3299,7 @@ headerRow: {
     marginBottom: 8,
   },
   amount: {
-    fontSize: 36,
+    fontSize: 26,
     fontWeight: "900" as const,
     marginBottom: 16,
   },

@@ -8,7 +8,9 @@ import DetailRow from "./../../DetailRow";
 import { styles } from "../../../theme/styles";
 import { COLORS } from "../../../theme/colors";
 import * as apiConfig from "../../../api/config";
-import { getNGNBalance, getFlutterwaveTransactions } from "../../../api/flutterwave";
+import { getNGNBalance, getLocalBalance, getFlutterwaveTransactions } from "../../../api/flutterwave";
+import { getUserTransactions, WalletTransaction } from "../../../api/transactions";
+
 
 interface AccountDetails {
   id: string;
@@ -19,6 +21,7 @@ interface AccountDetails {
   status: string;
   balance: number | null;
   flag: string;
+  isExotic?: boolean;
   currencyName: string;
   accountNumber?: string;
   routingNumber?: string;
@@ -43,6 +46,7 @@ export default function WalletScreen() {
   const [account, setAccount] = useState<AccountDetails | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [ngnTransactions, setNgnTransactions] = useState<NGNTransaction[]>([]);
+  const [walletTransactions, setWalletTransactions] = useState<WalletTransaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
 
   const isNGN = account?.currencyCode?.toUpperCase() === "NGN";
@@ -62,33 +66,45 @@ export default function WalletScreen() {
   // Refresh balance on screen focus
   const refreshBalance = useCallback(async () => {
     if (!account?.currencyCode) return;
-    
+
+    const isLocalLedger = Boolean(account?.isExotic) || isNGN;
+
     try {
       setRefreshing(true);
       const phone = await AsyncStorage.getItem("user_phone");
       if (!phone) return;
 
-      if (isNGN) {
-        // Fetch NGN balance from local wallet
-        const response = await getNGNBalance(phone);
+      if (isLocalLedger) {
+        // Exotic currencies (including NGN) live in the local ledger
+        const response = await getLocalBalance(phone, account.currencyCode);
         if (response.success) {
-          setAccount(prev => prev ? {
-            ...prev,
-            balance: response.balance
-          } : null);
+          setAccount((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  balance: response.balance,
+                }
+              : null
+          );
         }
       } else {
-        // Fetch from CurrencyCloud (if available)
-        const response = (apiConfig as any).getUserWallets ? await (apiConfig as any).getUserWallets(phone) : { success: false };
+        // Non-exotic currencies: fetch from CurrencyCloud wallets list
+        const response = (apiConfig as any).getUserWallets
+          ? await (apiConfig as any).getUserWallets(phone)
+          : { success: false };
         if (response.success) {
           const updatedWallet = (response.wallets || []).find(
             (w: any) => w.currencyCode.toUpperCase() === account.currencyCode.toUpperCase()
           );
           if (updatedWallet) {
-            setAccount(prev => prev ? {
-              ...prev,
-              balance: updatedWallet.balance
-            } : null);
+            setAccount((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    balance: updatedWallet.balance,
+                  }
+                : null
+            );
           }
         }
       }
@@ -97,7 +113,8 @@ export default function WalletScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [account?.currencyCode, isNGN]);
+  }, [account?.currencyCode, account?.isExotic, isNGN]);
+
 
   // Fetch NGN transactions
   const fetchNGNTransactions = useCallback(async () => {
@@ -111,16 +128,38 @@ export default function WalletScreen() {
       const response = await getFlutterwaveTransactions(phone);
       console.log('[WalletScreen] NGN transactions response:', response);
       if (response.success) {
-        // Map the incoming FlutterwaveTransaction shape to our NGNTransaction shape.
-        // Use safe fallbacks for fields that may be named differently by the API.
+        // Map FlutterwaveTransaction (unknown shape) into our NGNTransaction shape
         const mapped: NGNTransaction[] = (response.transactions || []).map((t: any) => ({
-          id: t.id || t.txid || String(t.transaction_id || ""),
-          amount: Number(t.amount || t.value || 0),
-          recipientName: t.recipientName || t.beneficiary_name || t.customer_name || t.name || "—",
-          recipientBank: t.recipientBank || t.beneficiary_bank || t.bank_name || t.bank || "—",
-          status: (t.status || t.transaction_status || "unknown").toString(),
-          createdAt: t.created_at || t.createdAt || t.date || new Date().toISOString(),
+          id:
+            t.id ??
+            t.transaction_id ??
+            t.tx_ref ??
+            t.flw_ref ??
+            String(Date.now()) + Math.random().toString(36).slice(2),
+          amount: Number(t.amount ?? t.amount_paid ?? t.charge ?? 0),
+          recipientName:
+            t.recipient?.name ??
+            t.customer?.name ??
+            t.name ??
+            t.beneficiary_name ??
+            t.account_name ??
+            "—",
+          recipientBank:
+            t.recipient?.bank ??
+            t.customer?.bank ??
+            t.beneficiary_bank ??
+            t.bank ??
+            t.account_bank ??
+            "—",
+          status: (t.status ?? t.transaction_status ?? t.response_code ?? "pending"),
+          createdAt:
+            t.created_at ??
+            t.createdAt ??
+            t.created_at_datetime ??
+            t.date ??
+            new Date().toISOString(),
         }));
+
         setNgnTransactions(mapped);
       }
     } catch (error) {
@@ -130,6 +169,27 @@ export default function WalletScreen() {
     }
   }, [isNGN]);
 
+  // Fetch transactions for non-NGN wallets from unified ledger
+  const fetchWalletTransactions = useCallback(async () => {
+    if (isNGN || !account?.currencyCode) return;
+    
+    try {
+      setLoadingTransactions(true);
+      const phone = await AsyncStorage.getItem("user_phone");
+      if (!phone) return;
+
+      const response = await getUserTransactions(phone, 1, 50, account.currencyCode);
+      console.log('[WalletScreen] Wallet transactions response:', response);
+      if (response.success) {
+        setWalletTransactions(response.transactions);
+      }
+    } catch (error) {
+      console.log("Failed to fetch wallet transactions:", error);
+    } finally {
+      setLoadingTransactions(false);
+    }
+  }, [isNGN, account?.currencyCode]);
+
   useFocusEffect(
     useCallback(() => {
       if (account) {
@@ -137,9 +197,11 @@ export default function WalletScreen() {
         refreshBalance();
         if (isNGN) {
           fetchNGNTransactions();
+        } else {
+          fetchWalletTransactions();
         }
       }
-    }, [account?.currencyCode, isNGN, refreshBalance, fetchNGNTransactions])
+    }, [account?.currencyCode, isNGN, refreshBalance, fetchNGNTransactions, fetchWalletTransactions])
   );
 
   const formatBalance = (balance: number | null, currencyCode: string) => {

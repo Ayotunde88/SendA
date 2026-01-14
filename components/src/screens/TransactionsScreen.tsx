@@ -151,12 +151,12 @@ export default function AllTransactionsScreen() {
 
   const getStatusColor = (status: string): string => {
     switch (status.toLowerCase()) {
-      case "completed": return "#22c55e";
+      case "completed": return COLORS.green;
       case "pending":
-      case "processing": return "#f59e0b";
+      case "processing": return COLORS.yellow;
       case "failed":
-      case "cancelled": return "#ef4444";
-      default: return "#6b7280";
+      case "cancelled": return COLORS.red;
+      default: return COLORS.gray;
     }
   };
 
@@ -218,7 +218,7 @@ export default function AllTransactionsScreen() {
                     onPress={() =>
                       router.push({
                         pathname: "/transactiondetail/[reference]",
-                        params: { reference: String(tx.reference) },
+                        params: { reference: encodeURIComponent(String(tx.reference)) },
                       } as any)
                     }
                   >
@@ -261,7 +261,7 @@ export default function AllTransactionsScreen() {
                             color:
                               tx.transactionType === "payout" || tx.amount < 0
                                 ? "#ef4444"
-                                : "#22c55e",
+                                : COLORS.green,
                           },
                         ]}
                       >

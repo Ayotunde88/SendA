@@ -196,24 +196,19 @@ export async function createBeneficiary(
       beneficiary_entity_type: 'individual',
     };
 
-    // CRITICAL: Include phone so backend can look up user profile for auto-populating fields
-    if (request.phone) payload.phone = request.phone;
-    if (request.walletId) payload.wallet_id = String(request.walletId);
-
-    // Add optional banking fields
+    // Add optional fields
     if (request.bankName) payload.bank_name = request.bankName;
     if (request.accountNumber) payload.account_number = request.accountNumber;
     if (request.routingCodeValue1) payload.routing_code_value_1 = request.routingCodeValue1;
     if (request.routingCodeValue2) payload.routing_code_value_2 = request.routingCodeValue2;
     if (request.iban) payload.iban = request.iban;
     if (request.bicSwift) payload.bic_swift = request.bicSwift;
-    
-    // Add optional beneficiary fields (backend will auto-fill from user profile if missing)
     if (request.beneficiaryAddress) payload.beneficiary_address = request.beneficiaryAddress;
     if (request.beneficiaryCity) payload.beneficiary_city = request.beneficiaryCity;
     if (request.beneficiaryStateOrProvince) payload.beneficiary_state_or_province = request.beneficiaryStateOrProvince;
     if (request.beneficiaryPostcode) payload.beneficiary_postcode = request.beneficiaryPostcode;
     if (request.email) payload.email = request.email;
+    if (request.walletId) payload.wallet_id = String(request.walletId);
 
     const response = await fetch(`${API_BASE_URL}/currencycloud/beneficiaries/create`, {
       method: 'POST',

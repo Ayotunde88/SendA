@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, Pressable, ActivityIndicator, Alert, Modal, FlatList } from "react-native";
+import { View, Text, Pressable, ActivityIndicator, Alert, Modal, FlatList, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 import { styles } from "../../../../theme/styles";
 import { getPublicCurrencies, createCurrencyAccount, getCountries, saveBaseCurrency } from "@/api/config";
@@ -188,19 +188,15 @@ export default function AddAccountScreen() {
   return (
     <SafeAreaView style={{ flex: 1 }}>
       <View style={styles.shell}>
-        {/* Header */}
-        <View style={styles.simpleHeader}>
+        <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={styles.backBtn}>
             <Text style={styles.backIcon}>←</Text>
           </Pressable>
-          <View style={{ flex: 1 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>Convert Currency</Text>
+            <Text style={styles.subtitle}>Choose a currency you want to hold</Text>
+          </View>
         </View>
-
-        <Text style={[styles.bigTitle, { marginTop: 8 }]}>Add a new account</Text>
-        <Text style={[styles.muted, { marginTop: 10, lineHeight: 22 }]}>
-          Choose a currency you want to hold. Receive, spend and{"\n"}
-          send money like a local.
-        </Text>
 
         {/* Show base currency if selected */}
         {baseCurrency && userCurrencyEnabled === false && (
@@ -232,11 +228,12 @@ export default function AddAccountScreen() {
         ) : currencies.length === 0 ? (
           <Text style={styles.muted}>No currencies available.</Text>
         ) : (
-          <View style={styles.addAccCard}>
-            {currencies.map((currency, index) => (
-              <React.Fragment key={currency.code}>
-                {index > 0 && <View style={styles.addAccDivider} />}
-                <CurrencyRow
+          <ScrollView>
+            <View style={styles.addAccCard}>
+              {currencies.map((currency, index) => (
+                <React.Fragment key={currency.code}>
+                  {index > 0 && <View style={styles.addAccDivider} />}
+                  <CurrencyRow
                   flag={currency.flag}
                   title={currency.name}
                   subtitle={currency.countryName || currency.name}
@@ -246,6 +243,7 @@ export default function AddAccountScreen() {
               </React.Fragment>
             ))}
           </View>
+          </ScrollView>
         )}
       </View>
 

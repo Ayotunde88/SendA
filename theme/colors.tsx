@@ -10,4 +10,7 @@ primary: "#2FBF71",
 //   green: "#2E9E6A",
   greenDark: "#1E7E52",
   greenSoft: "#E6F5EC",
+  yellow: "#db8f0dff",
+  red: "#EF4444",
+  gray: "#6B7280",
 };

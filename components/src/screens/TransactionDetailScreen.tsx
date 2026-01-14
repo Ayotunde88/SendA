@@ -1,23 +1,22 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { View, Text, Pressable, ActivityIndicator, ScrollView } from "react-native";
+import { View, Text, Pressable, ActivityIndicator, ScrollView, Alert } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
 import ScreenShell from "../../../components/ScreenShell";
 import { styles } from "../../../theme/styles";
 import { COLORS } from "../../../theme/colors";
 import { getTransactionByReference, WalletTransaction } from "../../../api/transactions";
 
-type TransactionDetailScreenProps = {
-  reference?: string;
-};
-
-export default function TransactionDetailScreen({ reference }: TransactionDetailScreenProps) {
+export default function TransactionDetailScreen() {
   const router = useRouter();
-//   const { reference } = useLocalSearchParams<{ reference: string }>();
+  const { reference } = useLocalSearchParams<{ reference: string }>();
 
   const [loading, setLoading] = useState(true);
   const [transaction, setTransaction] = useState<WalletTransaction | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
 
   const loadTransaction = useCallback(async () => {
     if (!reference) {
@@ -47,35 +46,50 @@ export default function TransactionDetailScreen({ reference }: TransactionDetail
 
   const getStatusColor = (status: string): string => {
     switch (status?.toLowerCase()) {
-      case "completed": return "#22c55e";
+      case "completed":
+        return COLORS.green;
       case "pending":
-      case "processing": return "#f59e0b";
+      case "processing":
+        return COLORS.yellow;
       case "failed":
-      case "cancelled": return "#ef4444";
-      default: return "#6b7280";
+      case "cancelled":
+        return COLORS.red;
+      default:
+        return COLORS.gray;
     }
   };
 
   const getStatusBgColor = (status: string): string => {
     switch (status?.toLowerCase()) {
-      case "completed": return "rgba(34, 197, 94, 0.1)";
+      case "completed":
+        return "rgba(34, 197, 94, 0.1)";
       case "pending":
-      case "processing": return "rgba(245, 158, 11, 0.1)";
+      case "processing":
+        return "rgba(245, 158, 11, 0.1)";
       case "failed":
-      case "cancelled": return "rgba(239, 68, 68, 0.1)";
-      default: return "rgba(107, 114, 128, 0.1)";
+      case "cancelled":
+        return "rgba(239, 68, 68, 0.1)";
+      default:
+        return "rgba(107, 114, 128, 0.1)";
     }
   };
 
   const getTransactionTypeLabel = (type: string): string => {
     switch (type) {
-      case "conversion": return "Currency Conversion";
-      case "payout": return "Money Sent";
-      case "deposit": return "Money Received";
-      case "transfer_in": return "Transfer In";
-      case "transfer_out": return "Transfer Out";
-      case "fee": return "Fee";
-      default: return type || "Transaction";
+      case "conversion":
+        return "Currency Conversion";
+      case "payout":
+        return "Money Sent";
+      case "deposit":
+        return "Money Received";
+      case "transfer_in":
+        return "Transfer In";
+      case "transfer_out":
+        return "Transfer Out";
+      case "fee":
+        return "Fee";
+      default:
+        return type || "Transaction";
     }
   };
 
@@ -106,6 +120,185 @@ export default function TransactionDetailScreen({ reference }: TransactionDetail
     })} ${currency}`;
   };
 
+  const generateReceiptHtml = (tx: WalletTransaction): string => {
+    const isOut = tx.transactionType === "payout" || tx.transactionType === "transfer_out" || tx.amount < 0;
+    const amountColor = isOut ? COLORS.red : COLORS.green;
+    const amountPrefix = isOut ? "-" : "+";
+
+    return `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f9fafb; padding: 20px; }
+            .receipt { max-width: 400px; margin: 0 auto; background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+            .header { background: linear-gradient(135deg, ${COLORS.primary}, #6366f1); padding: 24px; text-align: center; color: #fff; }
+            .header h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+            .header p { font-size: 12px; opacity: 0.9; }
+            .amount-section { padding: 24px; text-align: center; border-bottom: 1px solid #e5e7eb; }
+            .type-label { font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+            .amount { font-size: 32px; font-weight: 700; color: ${amountColor}; }
+            .status { display: inline-block; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-top: 12px; background: ${getStatusBgColor(tx.status)}; color: ${getStatusColor(tx.status)}; }
+            .section { padding: 20px 24px; border-bottom: 1px solid #e5e7eb; }
+            .section:last-child { border-bottom: none; }
+            .section-title { font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; font-weight: 600; }
+            .row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
+            .row-label { font-size: 14px; color: #6b7280; }
+            .row-value { font-size: 14px; color: #111827; font-weight: 500; text-align: right; }
+            .reference { font-family: monospace; font-size: 12px; background: #f3f4f6; padding: 8px 12px; border-radius: 8px; margin-top: 8px; word-break: break-all; }
+            .footer { padding: 20px 24px; text-align: center; background: #f9fafb; }
+            .footer p { font-size: 11px; color: #9ca3af; }
+          </style>
+        </head>
+        <body>
+          <div class="receipt">
+            <div class="header">
+              <h1>Transaction Receipt</h1>
+              <p>Thank you for using our service</p>
+            </div>
+            
+            <div class="amount-section">
+              <div class="type-label">${getTransactionTypeLabel(tx.transactionType)}</div>
+              <div class="amount">${amountPrefix}${formatAmount(tx.amount, tx.currency)}</div>
+              <div class="status">${tx.status.toUpperCase()}</div>
+            </div>
+
+            ${tx.transactionType === "conversion" && tx.fromCurrency && tx.toCurrency ? `
+            <div class="section">
+              <div class="section-title">Conversion Details</div>
+              <div class="row">
+                <span class="row-label">From</span>
+                <span class="row-value">${tx.fromAmount?.toLocaleString()} ${tx.fromCurrency}</span>
+              </div>
+              <div class="row">
+                <span class="row-label">To</span>
+                <span class="row-value">${tx.toAmount?.toLocaleString()} ${tx.toCurrency}</span>
+              </div>
+              ${tx.exchangeRate ? `
+              <div class="row">
+                <span class="row-label">Exchange Rate</span>
+                <span class="row-value">1 ${tx.fromCurrency} = ${tx.exchangeRate.toFixed(6)} ${tx.toCurrency}</span>
+              </div>
+              ` : ''}
+            </div>
+            ` : ''}
+
+            ${tx.counterpartyName ? `
+            <div class="section">
+              <div class="section-title">${isOut ? 'Recipient' : 'Sender'}</div>
+              <div class="row">
+                <span class="row-label">Name</span>
+                <span class="row-value">${tx.counterpartyName}</span>
+              </div>
+              ${tx.counterpartyBank ? `
+              <div class="row">
+                <span class="row-label">Bank</span>
+                <span class="row-value">${tx.counterpartyBank}</span>
+              </div>
+              ` : ''}
+              ${tx.counterpartyAccount ? `
+              <div class="row">
+                <span class="row-label">Account</span>
+                <span class="row-value">•••• ${tx.counterpartyAccount.slice(-4)}</span>
+              </div>
+              ` : ''}
+            </div>
+            ` : ''}
+
+            <div class="section">
+              <div class="section-title">Transaction Info</div>
+              <div class="row">
+                <span class="row-label">Date</span>
+                <span class="row-value">${formatDate(tx.createdAt)}</span>
+              </div>
+              <div class="row">
+                <span class="row-label">Time</span>
+                <span class="row-value">${formatTime(tx.createdAt)}</span>
+              </div>
+              ${tx.provider ? `
+              <div class="row">
+                <span class="row-label">Provider</span>
+                <span class="row-value">${tx.provider}</span>
+              </div>
+              ` : ''}
+              <div class="reference">${tx.reference}</div>
+            </div>
+
+            ${tx.feeAmount && tx.feeAmount > 0 ? `
+            <div class="section">
+              <div class="section-title">Fees</div>
+              <div class="row">
+                <span class="row-label">Fee Amount</span>
+                <span class="row-value">${tx.feeAmount.toFixed(2)} ${tx.feeCurrency || tx.currency}</span>
+              </div>
+            </div>
+            ` : ''}
+
+            <div class="footer">
+              <p>Generated on ${new Date().toLocaleString()}</p>
+              <p>Reference: ${tx.reference}</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+  };
+
+  const handleDownloadReceipt = async () => {
+    if (!transaction) return;
+
+    setGeneratingPdf(true);
+    try {
+      const html = generateReceiptHtml(transaction);
+      const { uri } = await Print.printToFileAsync({ html });
+      
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(uri, {
+          mimeType: "application/pdf",
+          dialogTitle: "Save or Share Receipt",
+          UTI: "com.adobe.pdf",
+        });
+      } else {
+        Alert.alert("Success", "Receipt saved to: " + uri);
+      }
+    } catch (e) {
+      console.error("Failed to generate receipt:", e);
+      Alert.alert("Error", "Failed to generate receipt. Please try again.");
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
+
+  const handleShareReceipt = async () => {
+    if (!transaction) return;
+
+    setGeneratingPdf(true);
+    try {
+      const html = generateReceiptHtml(transaction);
+      const { uri } = await Print.printToFileAsync({ html });
+      
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(uri, {
+          mimeType: "application/pdf",
+          dialogTitle: "Share Receipt",
+          UTI: "com.adobe.pdf",
+        });
+      } else {
+        Alert.alert("Sharing Unavailable", "Sharing is not available on this device.");
+      }
+    } catch (e) {
+      console.error("Failed to share receipt:", e);
+      Alert.alert("Error", "Failed to share receipt. Please try again.");
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -133,7 +326,7 @@ export default function TransactionDetailScreen({ reference }: TransactionDetail
           </View>
           <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
             <Text style={{ fontSize: 48, marginBottom: 12 }}>❌</Text>
-            <Text style={{ color: "#ef4444", fontWeight: "700", fontSize: 16 }}>
+            <Text style={{ color: COLORS.red, fontWeight: "700", fontSize: 16 }}>
               {error || "Transaction not found"}
             </Text>
             <Pressable
@@ -176,7 +369,7 @@ export default function TransactionDetailScreen({ reference }: TransactionDetail
             <Text
               style={[
                 styles.amount,
-                { color: isOutgoing ? "#ef4444" : "#22c55e" },
+                { color: isOutgoing ? COLORS.red : COLORS.green },
               ]}
             >
               {isOutgoing ? "-" : "+"}
@@ -330,9 +523,45 @@ export default function TransactionDetailScreen({ reference }: TransactionDetail
             </View>
           )}
 
+          {/* Download & Share Buttons */}
+          <View style={{ paddingHorizontal: 16, marginTop: 24, gap: 12 }}>
+            <Pressable
+              onPress={handleDownloadReceipt}
+              disabled={generatingPdf}
+              style={styles.outlineBtn}
+            >
+              {/* {generatingPdf ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                ""
+              )} */}
+              <Text style={{ color: COLORS.green, fontWeight: "700", fontSize: 16 }}>
+                Download Receipt
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={handleShareReceipt}
+              disabled={generatingPdf}
+              style={styles.primaryBtn}
+            >
+              {/* {generatingPdf ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                ""
+              )} */}
+              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>
+                Share Receipt
+              </Text>
+            </Pressable>
+          </View>
+
           {/* Help Button */}
-          <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
-            <Pressable onPress={() => {}} style={styles.helpButton}>
+          <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+            <Pressable
+              onPress={() => {}}
+              style={styles.helpButton}
+            >
               <Text style={styles.helpButtonText}>Need help with this transaction?</Text>
             </Pressable>
           </View>

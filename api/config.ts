@@ -1,5 +1,7 @@
 // api/config.ts
+
 import { Platform } from "react-native";
+
 export const API_BASE_URL =
   Platform.OS === "android"
     ? process.env.EXPO_PUBLIC_API_BASE_URL_ANDROID
@@ -79,16 +81,6 @@ export async function getPlaidIdvStatus(idvSessionId: string): Promise<{
   }
 }
 
-
-// export async function createPin(phone: string, pin: string) {
-//   const res = await fetch(`${API_BASE_URL}/users/pin`, {
-//     method: "POST",
-//     headers: { "Content-Type": "application/json" },
-//     body: JSON.stringify({ phone, pin }),
-//   });
-//   return res.json();
-// }
-
 export async function checkPinExists(phone: string) {
   const res = await fetch(`${API_BASE_URL}/users/pin/check`, {
     method: "POST",
@@ -152,7 +144,6 @@ export async function completeOnboarding(phone: string) {
   return res.json();
 }
 
-// api/config.ts
 export async function createPin(phone: string, pin: string) {
   const res = await fetch(`${API_BASE_URL}/users/pin`, {
     method: "POST",
@@ -177,7 +168,7 @@ export const getCountries = async (): Promise<Country[]> => {
   const response = await fetch(`${API_BASE_URL}/countries/public`);
   if (!response.ok) throw new Error('Failed to fetch countries');
   const data = await response.json();
-  return data.map((c: any) => ({  // ← Remove .countries
+  return data.map((c: any) => ({
     code: c.code,
     name: c.countryName || c.name,
     flag: c.flag,
@@ -186,7 +177,6 @@ export const getCountries = async (): Promise<Country[]> => {
     currencyEnabled: c.currencyEnabled,
   }));
 };
-
 
 // New function to save base currency to backend
 export const saveBaseCurrency = async (phone: string, baseCurrency: string, token: string): Promise<void> => {
@@ -203,19 +193,22 @@ export const saveBaseCurrency = async (phone: string, baseCurrency: string, toke
 
 // Add to api/config.ts
 export const checkPhoneExists = async (phone: string): Promise<{ exists: boolean; message: string }> => {
-    const res = await fetch(`${API_BASE_URL}/users/check-phone`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone }),
-    });
-    return res.json();
+  const res = await fetch(`${API_BASE_URL}/users/check-phone`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone }),
+  });
+  return res.json();
 };
 
 export const login = async (phone: string, password: string): Promise<{
   suspended: boolean;
-    user: any;
-    accessToken: any;
-    auth_token: any; success: boolean; message: string; token?: string 
+  user: any;
+  accessToken: any;
+  auth_token: any;
+  success: boolean;
+  message: string;
+  token?: string;
 }> => {
   const res = await fetch(`${API_BASE_URL}/users/login`, {
     method: 'POST',
@@ -224,7 +217,6 @@ export const login = async (phone: string, password: string): Promise<{
   });
   return res.json();
 };
-
 
 export type Region = { code: string; name: string };
 
@@ -250,7 +242,6 @@ export async function getRegionsByCountryName(countryName: string): Promise<Regi
   }));
 }
 
-
 export const sendEmailOtp = async (email: string) => {
   const res = await fetch(`${API_BASE_URL}/otp/email/send`, {
     method: 'POST',
@@ -259,6 +250,7 @@ export const sendEmailOtp = async (email: string) => {
   });
   return res.json();
 };
+
 export const verifyEmailOtp = async (email: string, code: string) => {
   const res = await fetch(`${API_BASE_URL}/otp/email/verify`, {
     method: 'POST',
@@ -287,7 +279,6 @@ export async function saveUserAddress(payload: {
   region: string;
   stateOrProvince: string;
   postalCode: string;
-
 }): Promise<{ success: boolean; message?: string }> {
   const response = await fetch(`${API_BASE_URL}/users/address`, {
     method: "POST",
@@ -296,7 +287,6 @@ export async function saveUserAddress(payload: {
   });
   return response.json();
 }
-
 
 export async function getUserProfile(phone: string): Promise<{
   success: boolean;
@@ -327,7 +317,6 @@ export async function getUserProfile(phone: string): Promise<{
 }
 
 // Fetch enabled currencies from backend
-// api/config.ts
 
 interface Currency {
   enabled: boolean;
@@ -341,7 +330,7 @@ interface Currency {
 }
 
 export async function getPublicCurrencies(includeAll = false): Promise<Currency[]> {
-  const url = includeAll 
+  const url = includeAll
     ? `${API_BASE_URL}/currencies/public?all=true`
     : `${API_BASE_URL}/currencies/public`;
   const res = await fetch(url);
@@ -349,11 +338,9 @@ export async function getPublicCurrencies(includeAll = false): Promise<Currency[
   return res.json();
 }
 
-
-
 export const createCurrencyAccount = async (
-  userPhone: string,      // moved to first
-  currencyCode: string, 
+  userPhone: string,
+  currencyCode: string,
   country: string
 ): Promise<{ success: boolean; message: string; account?: any }> => {
   const response = await fetch(`${API_BASE_URL}/currencycloud/create-account`, {
@@ -418,7 +405,6 @@ export async function getHistoricalRates(from: string, to: string, range: string
 // ============ CONVERSION API FUNCTIONS ============
 
 // Get user wallets with balances for conversion
-// Get user wallets with balances for conversion
 export async function getUserWallets(phone: string): Promise<{
   success: boolean;
   wallets: any[];
@@ -435,7 +421,6 @@ export async function getUserWallets(phone: string): Promise<{
     });
 
     const data = await response.json();
-    
     if (data.success && Array.isArray(data.wallets)) {
       return {
         success: true,
@@ -512,13 +497,52 @@ export const executeConversion = async (
   return response.json();
 };
 
+/**
+ * Currency destination for payout
+ */
+export interface PayoutDestination {
+  code: string;
+  name: string;
+  countryName: string;
+  flag: string;
+  isExotic: boolean;
+}
 
+/**
+ * Get available payout destinations
+ * Returns exotic currencies (Flutterwave) + CAD (CurrencyCloud EFT)
+ */
+export async function getPayoutDestinations(): Promise<{
+  success: boolean;
+  destinations: PayoutDestination[];
+  message?: string;
+}> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/currencies/public`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
 
+    const data = await response.json();
 
+    if (Array.isArray(data)) {
+      // Filter for exotic currencies (Flutterwave payouts) + CAD (CurrencyCloud EFT)
+      const destinations: PayoutDestination[] = data
+        .filter((c: any) => c.is_exotic || c.isExotic || c.code === 'CAD')
+        .map((c: any) => ({
+          code: c.code,
+          name: c.name,
+          countryName: c.country_name || c.countryName || c.name,
+          flag: c.flag || '🏳️',
+          isExotic: c.is_exotic || c.isExotic || false,
+        }));
 
+      return { success: true, destinations };
+    }
 
-
-
-
-
-
+    return { success: false, destinations: [], message: 'Failed to fetch destinations' };
+  } catch (error) {
+    console.error('Failed to fetch payout destinations:', error);
+    return { success: false, destinations: [], message: 'Failed to fetch payout destinations' };
+  }
+}

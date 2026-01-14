@@ -1,35 +1,43 @@
-/**
- * Paysafe API Client for CAD Interac e-Transfers
- */
 import { Platform } from 'react-native';
+import { 
+  strictAPICall, 
+  executeTransaction, 
+  TransactionError,
+  strictFetch,
+  strictParseJSON,
+  TRANSACTION_TIMEOUT_MS 
+} from './networkGuard';
 
-// API Base URL - same pattern as flutterwave.ts
-export const API_BASE_URL =
+// Platform-specific API URLs - matches config.ts pattern (includes /api suffix)
+const API_BASE_URL =
   Platform.OS === 'android'
     ? process.env.EXPO_PUBLIC_API_BASE_URL_ANDROID || 'http://10.0.2.2:5000/api'
     : process.env.EXPO_PUBLIC_API_BASE_URL_IOS || 'http://127.0.0.1:5000/api';
 
+export { TransactionError };
 
-export interface SendInteracRequest {
-  phone: string;
-  amount: number;
-  recipientEmail: string;
-  recipientName: string;
+export interface SendEFTRequest {
+  phone: string;           // Required by Flask backend
+  amount: number;          // Required
+  recipientName: string;   // Required
+  accountNumber: string;   // Required (5-12 digits)
+  institutionNumber: string; // Required (3 digits)
+  transitNumber: string;   // Required (5 digits)
   message?: string;
 }
 
-export interface SendInteracResponse {
+export interface SendEFTResponse {
   success: boolean;
   message?: string;
   transactionId?: string;
   reference?: string;
   amount?: number;
-  recipientEmail?: string;
   recipientName?: string;
+  accountNumber?: string;
   status?: string;
 }
 
-export interface InteracTransaction {
+export interface EFTTransaction {
   id: string;
   type: string;
   amount: number;
@@ -40,209 +48,200 @@ export interface InteracTransaction {
   createdAt: string;
 }
 
-export interface VerifyAutoDepositResponse {
+export interface ValidateBankResponse {
   success: boolean;
-  autoDeposit: boolean;
-  maxAmount?: number;
+  valid: boolean;
+  bankName?: string;
+  errors?: string[];
   message?: string;
 }
 
 /**
- * Request body for sending an EFT (electronic funds transfer)
+ * Send CAD via EFT (Electronic Funds Transfer) using Paysafe
+ * THROWS on any error - use try/catch to handle
+ * Transaction will NOT proceed if network is unstable or any validation fails
  */
-export interface SendEFTRequest {
-  amount: number;
-  recipientName: string;
-  accountNumber: string;
-  transitNumber?: string;
-  phone: string;
-  institutionNumber: string;
-  reference?: string;
-  description?: string;
-  currency?: string;
-  recipientEmail?: string;
-}
-
-/**
- * Response returned after attempting to send an EFT
- */
-export interface SendEFTResponse {
-  success: boolean;
-  message?: string;
-  transactionId?: string;
-  reference?: string;
-  amount?: number;
-  status?: string;
-  recipientName?: string;
-  accountNumberMasked?: string;
-}
-
-/**
- * Send CAD via Interac e-Transfer using Paysafe
- */
-export async function sendInterac(request: SendInteracRequest): Promise<SendInteracResponse> {
-  try {
-    console.log('[Paysafe] Sending Interac e-Transfer:', {
-      amount: request.amount,
-      recipientEmail: request.recipientEmail,
-      recipientName: request.recipientName
-    });
-
-    const response = await fetch(`${API_BASE_URL}/paysafe/send-interac`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(request),
-    });
-
-    const data = await response.json();
-    console.log('[Paysafe] Send response:', data);
-
-    return data;
-  } catch (error) {
-    console.error('[Paysafe] Send Interac error:', error);
-    return {
-      success: false,
-      message: 'Failed to send Interac e-Transfer. Please try again.',
-    };
-  }
-}
-
-/**
- * Verify if recipient email is registered for Interac Auto-Deposit
- */
-export async function verifyAutoDeposit(email: string): Promise<VerifyAutoDepositResponse> {
-  try {
-    console.log('[Paysafe] Verifying auto-deposit for:', email);
-
-    const response = await fetch(`${API_BASE_URL}/paysafe/verify-autodeposit`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ email }),
-    });
-
-    const data = await response.json();
-    console.log('[Paysafe] Auto-deposit verification response:', data);
-
-    return data;
-  } catch (error) {
-    console.error('[Paysafe] Verify auto-deposit error:', error);
-    return {
-      success: false,
-      autoDeposit: false,
-      message: 'Failed to verify auto-deposit status.',
-    };
-  }
-}
-
-/**
- * Get Paysafe/Interac transaction history
- */
-export async function getInteracTransactions(phone: string): Promise<{
-  success: boolean;
-  transactions: InteracTransaction[];
-  message?: string;
-}> {
-  try {
-    const response = await fetch(
-      `${API_BASE_URL}/paysafe/transactions?phone=${encodeURIComponent(phone)}`
-    );
-
-    const data = await response.json();
-    return {
-      success: data.success,
-      transactions: data.transactions || [],
-      message: data.message,
-    };
-  } catch (error) {
-    console.error('[Paysafe] Get transactions error:', error);
-    return {
-      success: false,
-      transactions: [],
-      message: 'Failed to fetch transactions',
-    };
-  }
-}
-
-
-
-/**
- * Get transaction status
- */
-export async function getTransactionStatus(transactionId: string): Promise<{
-  success: boolean;
-  status?: string;
-  message?: string;
-}> {
-  try {
-    const response = await fetch(
-      `${API_BASE_URL}/paysafe/status/${encodeURIComponent(transactionId)}`
-    );
-
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error('[Paysafe] Get status error:', error);
-    return {
-      success: false,
-      message: 'Failed to get transaction status',
-    };
-  }
-}
-
 export async function sendEFT(request: SendEFTRequest): Promise<SendEFTResponse> {
-  try {
+  return executeTransaction(async () => {
     console.log('[Paysafe] Sending EFT:', {
       amount: request.amount,
       recipientName: request.recipientName,
       accountNumber: `***${request.accountNumber.slice(-4)}`
     });
 
-    const response = await fetch(`${API_BASE_URL}/paysafe/send-eft`, {
+    // Pre-validate required fields before network call
+    if (!request.phone || !request.amount || !request.recipientName || 
+        !request.accountNumber || !request.institutionNumber || !request.transitNumber) {
+      throw new TransactionError(
+        'Missing required fields for EFT transfer',
+        'VALIDATION_FAILED'
+      );
+    }
+
+    if (request.amount <= 0) {
+      throw new TransactionError(
+        'Amount must be greater than 0',
+        'INVALID_AMOUNT'
+      );
+    }
+
+    // Validate Canadian banking numbers
+    if (!isValidInstitutionNumber(request.institutionNumber)) {
+      throw new TransactionError(
+        'Institution number must be exactly 3 digits',
+        'INVALID_INSTITUTION'
+      );
+    }
+
+    if (!isValidTransitNumber(request.transitNumber)) {
+      throw new TransactionError(
+        'Transit number must be exactly 5 digits',
+        'INVALID_TRANSIT'
+      );
+    }
+
+    if (!isValidAccountNumber(request.accountNumber)) {
+      throw new TransactionError(
+        'Account number must be between 5 and 12 digits',
+        'INVALID_ACCOUNT'
+      );
+    }
+
+    const response = await strictFetch(`${API_BASE_URL}/paysafe/send-eft`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
+      timeoutMs: TRANSACTION_TIMEOUT_MS,
     });
 
-    const text = await response.text();
-    if (!text) {
-      console.error('[Paysafe] Empty response from server');
-      return {
-        success: false,
-        message: 'No response from server. Please check your connection.',
-      };
+    // Check for HTTP errors
+    if (!response.ok) {
+      let errorData: any;
+      try {
+        errorData = await response.json();
+      } catch {
+        throw new TransactionError(
+          `Server error (${response.status}). Please try again.`,
+          `HTTP_${response.status}`
+        );
+      }
+      throw new TransactionError(
+        errorData?.message || `EFT transfer failed (${response.status})`,
+        `HTTP_${response.status}`,
+        { details: errorData }
+      );
     }
 
-    try {
-      const data = JSON.parse(text);
-      console.log('[Paysafe] EFT response:', data);
-      return data;
-    } catch (parseError) {
-      console.error('[Paysafe] Failed to parse response:', text);
-      return {
-        success: false,
-        message: 'Invalid response from server. Please try again.',
-      };
+    const data = await strictParseJSON<SendEFTResponse>(response);
+
+    if (!data.success) {
+      throw new TransactionError(
+        data.message || 'EFT transfer failed',
+        'EFT_FAILED',
+        { details: data }
+      );
     }
-  } catch (error) {
-    console.error('[Paysafe] Send EFT error:', error);
-    return {
-      success: false,
-      message: 'Failed to send EFT. Please check your network connection.',
-    };
-  }
+
+    console.log('[Paysafe] EFT response:', data);
+    return data;
+  }, 'EFT Transfer');
 }
 
+/**
+ * Validate Canadian banking details
+ * THROWS on any error - use try/catch to handle
+ */
+export async function validateBankDetails(
+  institutionNumber: string,
+  transitNumber: string,
+  accountNumber: string
+): Promise<ValidateBankResponse> {
+  return executeTransaction(async () => {
+    console.log('[Paysafe] Validating bank details');
+
+    const data = await strictAPICall<ValidateBankResponse>(
+      `${API_BASE_URL}/paysafe/validate-bank`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ institutionNumber, transitNumber, accountNumber }),
+        context: 'Validate bank details',
+        timeoutMs: TRANSACTION_TIMEOUT_MS,
+      }
+    );
+
+    console.log('[Paysafe] Bank validation response:', data);
+    return data;
+  }, 'Bank Validation');
+}
 
 /**
- * Validate Interac email
+ * Get Paysafe/EFT transaction history
+ * THROWS on any error - use try/catch to handle
  */
-export function isValidInteracEmail(email: string): boolean {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
+export async function getEFTTransactions(phone: string): Promise<{
+  success: boolean;
+  transactions: EFTTransaction[];
+  message?: string;
+}> {
+  const data = await strictAPICall<any>(
+    `${API_BASE_URL}/paysafe/transactions?phone=${encodeURIComponent(phone)}`,
+    {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      context: 'Get EFT transactions',
+      timeoutMs: TRANSACTION_TIMEOUT_MS,
+    }
+  );
+
+  return {
+    success: true,
+    transactions: data.transactions || [],
+    message: data.message,
+  };
+}
+
+/**
+ * Get transaction status
+ * THROWS on any error - use try/catch to handle
+ */
+export async function getTransactionStatus(transactionId: string): Promise<{
+  success: boolean;
+  status?: string;
+  message?: string;
+}> {
+  const data = await strictAPICall<any>(
+    `${API_BASE_URL}/paysafe/status/${encodeURIComponent(transactionId)}`,
+    {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      context: 'Get transaction status',
+      timeoutMs: TRANSACTION_TIMEOUT_MS,
+    }
+  );
+
+  return data;
+}
+
+// Validators are defined above to avoid duplicate declarations.
+
+/**
+ * Validate Canadian institution number (3 digits)
+ */
+export function isValidInstitutionNumber(num: string): boolean {
+  return /^\d{3}$/.test(num);
+}
+
+/**
+ * Validate Canadian transit number (5 digits)
+ */
+export function isValidTransitNumber(num: string): boolean {
+  return /^\d{5}$/.test(num);
+}
+
+/**
+ * Validate Canadian account number (5-12 digits)
+ */
+export function isValidAccountNumber(num: string): boolean {
+  return /^\d{5,12}$/.test(num);
 }
