@@ -23,6 +23,7 @@ import {
   getConversionQuote,
   executeConversion,
 } from "../../../api/config";
+import { addPendingSettlement, usePendingSettlements } from "../../UsePendingSettlements";
 
 // Quick amount button component
 const QuickAmountButton = ({
@@ -71,6 +72,22 @@ export default function ConvertScreen() {
   const [showFromPicker, setShowFromPicker] = useState(false);
   const [showToPicker, setShowToPicker] = useState(false);
 
+  // Pending settlements for optimistic balance display
+  const {
+    hasPendingForCurrency,
+    getOptimisticBalance,
+  } = usePendingSettlements();
+
+  // Get optimistic balances for display (accounting for pending settlements)
+  const getDisplayBalance = useCallback((wallet: Wallet | null) => {
+    if (!wallet) return 0;
+        return getOptimisticBalance(wallet.balance, wallet.currencyCode);
+  }, [getOptimisticBalance]);
+
+  const fromDisplayBalance = getDisplayBalance(fromWallet);
+  const toDisplayBalance = getDisplayBalance(toWallet);
+  const fromHasPending = fromWallet ? hasPendingForCurrency(fromWallet.currencyCode) : false;
+
   // Load user phone from AsyncStorage
   useEffect(() => {
     AsyncStorage.getItem("user_phone").then((phone) => {
@@ -89,15 +106,15 @@ export default function ConvertScreen() {
     }
   }, [userPhone]);
 
-  // Check balance exceeded
+  // Check balance exceeded (use optimistic display balance)
   useEffect(() => {
     if (fromWallet && fromAmount) {
       const amount = parseFloat(fromAmount) || 0;
-      setBalanceExceeded(amount > fromWallet.balance);
+      setBalanceExceeded(amount > fromDisplayBalance);
     } else {
       setBalanceExceeded(false);
     }
-  }, [fromAmount, fromWallet]);
+  }, [fromAmount, fromWallet, fromDisplayBalance]);
 
   const loadWallets = async () => {
     try {
@@ -198,8 +215,8 @@ export default function ConvertScreen() {
   }, [fetchQuote]);
 
   const handleQuickAmount = (percentage: number) => {
-    if (fromWallet && fromWallet.balance > 0) {
-      const amount = (fromWallet.balance * percentage).toFixed(2);
+    if (fromWallet && fromDisplayBalance > 0) {
+      const amount = (fromDisplayBalance * percentage).toFixed(2);
       setFromAmount(amount);
     }
   };
@@ -214,13 +231,23 @@ export default function ConvertScreen() {
       return;
     }
 
-    if (amount > fromWallet.balance) {
+    // Block if source wallet has pending settlement
+    if (fromHasPending) {
+      Alert.alert(
+        "Settlement in Progress",
+        `Your ${fromWallet.currencyCode} wallet has a pending conversion that is still settling. Please wait for settlement to complete before converting.`,
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
+    if (amount > fromDisplayBalance) {
       router.push({
         pathname: "/result",
         params: {
           type: "error",
           title: "Conversion Failed",
-          message: `Insufficient Balance. You only have ${fromWallet.formattedBalance} ${fromWallet.currencyCode}`,
+          message: `Insufficient Balance. You only have ${fromDisplayBalance.toFixed(2)} ${fromWallet.currencyCode}`,
           primaryText: "Try again",
           primaryRoute: "back",
           secondaryText: "Contact support",
@@ -263,17 +290,41 @@ export default function ConvertScreen() {
       console.log("[ConvertScreen] Conversion response:", response);
 
       if (response.success) {
-        // Navigate to success result screen
+        const conversionData = response.conversion;
+        const sellAmount = conversionData?.sellAmount || parseFloat(fromAmount);
+        const buyAmount = conversionData?.buyAmount || parseFloat(toAmount);
+        const sellCurrency = conversionData?.sellCurrency || fromWallet.currencyCode;
+        const buyCurrency = conversionData?.buyCurrency || toWallet.currencyCode;
+        
+        // If balance update is pending (CurrencyCloud hasn't settled yet), 
+        // add to pending settlements for optimistic UI updates
+        if (response.balanceUpdatePending) {
+          console.log("[ConvertScreen] Balance pending settlement, adding optimistic update");
+          await addPendingSettlement({
+            sellCurrency,
+            buyCurrency,
+            sellAmount,
+            buyAmount,
+            conversionId: conversionData?.id,
+          });
+        }
+        
+        // Navigate to success result screen with conversion details
+        const pendingNote = response.balanceUpdatePending 
+          ? "\n\nBalance will update shortly once settlement completes."
+          : "";
+        
         router.push({
           pathname: "/result",
           params: {
             type: "success",
-            title: "Conversion Successful",
-            message: `Converted ${fromAmount} ${fromWallet.currencyCode} to ${toAmount} ${toWallet.currencyCode}`,
+            title: response.balanceUpdatePending ? "Conversion Processing" : "Conversion Complete",
+            message: `You converted ${sellAmount.toFixed(2)} ${sellCurrency} to ${buyAmount.toFixed(2)} ${buyCurrency}${pendingNote}`,
+            subtitle: `Rate: 1 ${sellCurrency} = ${conversionData?.rate?.toFixed(4) || rate?.toFixed(4)} ${buyCurrency}`,
             primaryText: "Done",
             primaryRoute: "/(tabs)",
-            secondaryText: "View transactions",
-            secondaryRoute: "/transactions",
+            secondaryText: "View wallet",
+            secondaryRoute: "/(tabs)/wallet",
           },
         });
       } else {
@@ -441,6 +492,7 @@ export default function ConvertScreen() {
     fromAmount &&
     parseFloat(fromAmount) > 0 &&
     !balanceExceeded &&
+    !fromHasPending &&
     rate &&
     !quoteLoading;
 
@@ -451,15 +503,17 @@ export default function ConvertScreen() {
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={{ flex: 1 }}
         >
-          <View style={styles.headerRow}>
+          <View style={styles.simpleHeader}>
             <Pressable onPress={() => router.back()} style={styles.backBtn}>
               <Text style={styles.backIcon}>←</Text>
             </Pressable>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.title}>Convert Currency</Text>
-              <Text style={styles.subtitle}>Convert money from one currency to another</Text>
-            </View>
+            <View style={{ flex: 1 }} />
           </View>
+
+          <Text style={[styles.bigTitle, { marginTop: 8 }]}>Convert Currency</Text>
+          <Text style={styles.convertHint}>
+            Convert money from one currency to another
+          </Text>
 
           {/* FROM Section */}
           <View style={styles.convertBox}>
@@ -491,12 +545,17 @@ export default function ConvertScreen() {
                 balanceExceeded && { color: "#EF4444" },
               ]}
             >
-              Balance: {fromWallet?.formattedBalance || "0.00"}{" "}
+              Balance: {fromDisplayBalance.toFixed(2)}{" "}
               {fromWallet?.currencyCode || ""}
             </Text>
             {balanceExceeded && (
               <Text style={{ color: "#EF4444", fontSize: 12, marginTop: 4 }}>
                 ⚠️ Insufficient balance
+              </Text>
+            )}
+            {fromHasPending && (
+              <Text style={{ color: "#F59E0B", fontSize: 12, marginTop: 4 }}>
+                ⏳ Settlement pending - conversion blocked
               </Text>
             )}
 
@@ -505,22 +564,22 @@ export default function ConvertScreen() {
               <QuickAmountButton
                 label="25%"
                 onPress={() => handleQuickAmount(0.25)}
-                disabled={!fromWallet || fromWallet.balance <= 0}
+                disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending}
               />
               <QuickAmountButton
                 label="50%"
                 onPress={() => handleQuickAmount(0.5)}
-                disabled={!fromWallet || fromWallet.balance <= 0}
+                disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending}
               />
               <QuickAmountButton
                 label="75%"
                 onPress={() => handleQuickAmount(0.75)}
-                disabled={!fromWallet || fromWallet.balance <= 0}
+                disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending}
               />
               <QuickAmountButton
                 label="MAX"
                 onPress={() => handleQuickAmount(1.0)}
-                disabled={!fromWallet || fromWallet.balance <= 0}
+                disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending}
               />
             </View>
           </View>
@@ -540,7 +599,7 @@ export default function ConvertScreen() {
             ) : (
               <Text style={styles.muted}>Enter amount to see rate</Text>
             )}
-            <Text style={styles.muted}>⚡ Instant</Text>
+            <Text style={styles.muted}>⚡ Instant conversion</Text>
           </View>
 
           {/* TO Section */}
@@ -561,7 +620,7 @@ export default function ConvertScreen() {
               />
             </View>
             <Text style={styles.convertBalance}>
-              Balance: {toWallet?.formattedBalance || "0.00"}{" "}
+              Balance: {toDisplayBalance.toFixed(2)}{" "}
               {toWallet?.currencyCode || ""}
             </Text>
           </View>

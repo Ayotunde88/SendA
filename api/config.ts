@@ -156,6 +156,7 @@ export async function createPin(phone: string, pin: string) {
 }
 
 export interface Country {
+  currencyCode: string;
   code: string;
   name: string;
   symbol?: string;

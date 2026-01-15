@@ -1,45 +1,130 @@
-import React, { useMemo } from "react";
-import { View, Text, Pressable } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import React, { useState, useEffect } from "react";
+import {
+  View,
+  Text,
+  Platform,
+  Pressable,
+  Alert,
+  ActivityIndicator,
+  ScrollView,
+} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import ScreenShell from "../../../components/ScreenShell";
-import type { SavedRecipient } from "./RecipientSelectScreen";
+import { styles } from "../../../theme/styles";
+import {
+  sendFlutterwave,
+  getCurrencySymbol,
+  COUNTRY_NAMES,
+  CURRENCY_TO_COUNTRY,
+} from "../../../api/flutterwave";
 
-function getInitials(name: string) {
-  return name
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
+interface RecipientData {
+  accountName: string;
+  accountNumber: string;
+  bankCode: string;
+  bankName: string;
+  currency: string;
+  countryCode: string;
 }
 
 export default function RecipientConfirmScreen() {
+  const router = useRouter();
   const params = useLocalSearchParams<{
-    destCurrency: "NGN" | "CAD";
+    destCurrency: string;
     fromWalletId: string;
     fromCurrency: string;
     fromAmount: string;
     toAmount: string;
     rate?: string;
-    recipient: string; // JSON
-    mode?: "saved" | "new";
+    recipient: string;
+    mode: string;
   }>();
 
-  const recipient = useMemo(() => {
-    try {
-      return JSON.parse(params.recipient) as SavedRecipient;
-    } catch {
-      return null;
+  const [userPhone, setUserPhone] = useState("");
+  const [sending, setSending] = useState(false);
+
+  // Parse recipient data
+  const recipient: RecipientData = params.recipient 
+    ? JSON.parse(params.recipient) 
+    : null;
+
+  const destCurrency = recipient?.currency || params.destCurrency || "NGN";
+  const countryCode = recipient?.countryCode || CURRENCY_TO_COUNTRY[destCurrency] || "NG";
+  const countryName = COUNTRY_NAMES[countryCode] || countryCode;
+  const symbol = getCurrencySymbol(destCurrency);
+  const fromSymbol = getCurrencySymbol(params.fromCurrency || "USD");
+
+  const fromAmount = parseFloat(params.fromAmount || "0");
+  const toAmount = parseFloat(params.toAmount || "0");
+  const rate = params.rate ? parseFloat(params.rate) : null;
+
+  useEffect(() => {
+    AsyncStorage.getItem("user_phone").then((phone) => {
+      if (phone) setUserPhone(phone);
+    });
+  }, []);
+
+  const handleConfirmSend = async () => {
+    if (!recipient || !userPhone) {
+      Alert.alert("Error", "Missing recipient or user information");
+      return;
     }
-  }, [params.recipient]);
+
+    setSending(true);
+
+    try {
+      const response = await sendFlutterwave({
+        phone: userPhone,
+        amount: toAmount,
+        currency: destCurrency,
+        accountNumber: recipient.accountNumber,
+        bankCode: recipient.bankCode,
+        bankName: recipient.bankName,
+        accountName: recipient.accountName,
+        fromCurrency: params.fromCurrency,
+        fromAmount: fromAmount,
+        narration: `Transfer to ${recipient.accountName}`,
+      });
+
+      if (response.success) {
+        Alert.alert(
+          "Transfer Successful",
+          `${symbol}${toAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ${destCurrency} has been sent to ${recipient.accountName}`,
+          [
+            {
+              text: "Done",
+              onPress: () => router.replace("/"),
+            },
+          ]
+        );
+      } else {
+        Alert.alert(
+          "Transfer Failed",
+          response.message || "Failed to send money. Please try again."
+        );
+      }
+    } catch (error: any) {
+      console.error("Transfer error:", error);
+      Alert.alert(
+        "Transfer Failed",
+        error?.message || "An error occurred. Please try again."
+      );
+    } finally {
+      setSending(false);
+    }
+  };
 
   if (!recipient) {
     return (
       <ScreenShell>
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <Text>Recipient not found</Text>
-          <Pressable onPress={() => router.back()} style={{ marginTop: 10 }}>
-            <Text style={{ color: "#16A34A", fontWeight: "800" }}>Go back</Text>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+          <Text style={{ color: "#EF4444", fontSize: 16 }}>Invalid recipient data</Text>
+          <Pressable
+            style={{ marginTop: 20, padding: 12, backgroundColor: "#2E9E6A", borderRadius: 8 }}
+            onPress={() => router.back()}
+          >
+            <Text style={{ color: "#fff", fontWeight: "600" }}>Go Back</Text>
           </Pressable>
         </View>
       </ScreenShell>
@@ -48,95 +133,211 @@ export default function RecipientConfirmScreen() {
 
   return (
     <ScreenShell>
-      <View style={{ flex: 1, backgroundColor: "#00000030" }}>
-        {/* sheet */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
+      >
+        {/* Header */}
+        <View style={styles.simpleHeader}>
+          <Pressable onPress={() => router.back()} style={styles.backBtn}>
+            <Text style={styles.backIcon}>←</Text>
+          </Pressable>
+          <Text style={{ fontSize: 18, fontWeight: "700", color: "#1F2937" }}>
+            Confirm Transfer
+          </Text>
+          <View style={{ width: 40 }} />
+        </View>
+
+        {/* Transfer Summary */}
         <View
           style={{
-            marginTop: "auto",
-            backgroundColor: "#fff",
-            borderTopLeftRadius: 22,
-            borderTopRightRadius: 22,
-            paddingHorizontal: 18,
-            paddingTop: 14,
-            paddingBottom: 26,
+            backgroundColor: "#ECFDF5",
+            borderRadius: 16,
+            padding: 20,
+            marginTop: 20,
+            alignItems: "center",
           }}
         >
-          <Pressable onPress={() => router.back()} style={{ paddingVertical: 4 }}>
-            <Text style={{ fontSize: 24 }}>✕</Text>
-          </Pressable>
+          <Text style={{ fontSize: 14, color: "#065F46", marginBottom: 8 }}>
+            Recipient gets
+          </Text>
+          <Text style={{ fontSize: 32, fontWeight: "800", color: "#065F46" }}>
+            {symbol}{toAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </Text>
+          <Text style={{ fontSize: 16, color: "#065F46", marginTop: 4 }}>
+            {destCurrency}
+          </Text>
+        </View>
 
-          <View style={{ alignItems: "center", marginTop: 10 }}>
-            <View style={{ width: 84, height: 84, borderRadius: 42, backgroundColor: "#3B2A12", alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ color: "#fff", fontSize: 22, fontWeight: "900" }}>{getInitials(recipient.accountName)}</Text>
-            </View>
+        {/* From Amount */}
+        <View
+          style={{
+            backgroundColor: "#F9FAFB",
+            borderRadius: 12,
+            padding: 16,
+            marginTop: 16,
+            flexDirection: "row",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <Text style={{ fontSize: 14, color: "#6B7280" }}>You send</Text>
+          <Text style={{ fontSize: 16, fontWeight: "700", color: "#1F2937" }}>
+            {fromSymbol}{fromAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {params.fromCurrency}
+          </Text>
+        </View>
 
-            <Text style={{ marginTop: 18, fontSize: 18, fontWeight: "900" }}>
-              Confirm recipient details
+        {/* Exchange Rate */}
+        {rate && params.fromCurrency !== destCurrency && (
+          <View
+            style={{
+              backgroundColor: "#F9FAFB",
+              borderRadius: 12,
+              padding: 16,
+              marginTop: 8,
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ fontSize: 14, color: "#6B7280" }}>Exchange rate</Text>
+            <Text style={{ fontSize: 14, fontWeight: "600", color: "#1F2937" }}>
+              1 {params.fromCurrency} = {rate.toFixed(4)} {destCurrency}
             </Text>
+          </View>
+        )}
+
+        {/* Recipient Details */}
+        <View style={{ marginTop: 24 }}>
+          <Text style={{ fontSize: 16, fontWeight: "700", color: "#1F2937", marginBottom: 12 }}>
+            Recipient Details
+          </Text>
+          
+          <View
+            style={{
+              backgroundColor: "#fff",
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: "#E5E7EB",
+              overflow: "hidden",
+            }}
+          >
+            <View
+              style={{
+                padding: 16,
+                borderBottomWidth: 1,
+                borderBottomColor: "#F3F4F6",
+              }}
+            >
+              <Text style={{ fontSize: 12, color: "#6B7280", marginBottom: 4 }}>
+                Account Name
+              </Text>
+              <Text style={{ fontSize: 16, fontWeight: "600", color: "#1F2937" }}>
+                {recipient.accountName}
+              </Text>
+            </View>
 
             <View
               style={{
-                marginTop: 16,
-                width: "100%",
-                borderRadius: 14,
-                backgroundColor: "#F5F5F5",
-                paddingVertical: 14,
-                paddingHorizontal: 14,
-                alignItems: "center",
+                padding: 16,
+                borderBottomWidth: 1,
+                borderBottomColor: "#F3F4F6",
               }}
             >
-              <Text style={{ fontSize: 16, fontWeight: "900", textAlign: "center" }}>
-                {recipient.accountName}
+              <Text style={{ fontSize: 12, color: "#6B7280", marginBottom: 4 }}>
+                Account Number
               </Text>
-              <Text style={{ marginTop: 6, color: "#6B7280", fontWeight: "700" }}>
-                {recipient.bankName}, {recipient.accountNumber}
+              <Text style={{ fontSize: 16, fontWeight: "600", color: "#1F2937", fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}>
+                {recipient.accountNumber}
               </Text>
             </View>
 
-            <Text style={{ marginTop: 18, textAlign: "center", color: "#6B7280", fontWeight: "700" }}>
-              Please confirm the recipient's details before you continue
-            </Text>
-
-            <Pressable
-              onPress={() =>
-                router.push({
-                  pathname: "/transferconfirm",
-                  params: {
-                    ...params,
-                  },
-                } as any)
-              }
+            <View
               style={{
-                marginTop: 18,
-                width: "100%",
-                height: 56,
-                borderRadius: 28,
-                backgroundColor: "#059669",
-                alignItems: "center",
-                justifyContent: "center",
+                padding: 16,
+                borderBottomWidth: 1,
+                borderBottomColor: "#F3F4F6",
               }}
             >
-              <Text style={{ color: "#fff", fontSize: 16, fontWeight: "900" }}>Continue</Text>
-            </Pressable>
+              <Text style={{ fontSize: 12, color: "#6B7280", marginBottom: 4 }}>
+                Bank
+              </Text>
+              <Text style={{ fontSize: 16, fontWeight: "600", color: "#1F2937" }}>
+                {recipient.bankName}
+              </Text>
+            </View>
 
-            <Pressable
-              onPress={() => router.back()}
-              style={{
-                marginTop: 12,
-                width: "100%",
-                height: 56,
-                borderRadius: 28,
-                borderWidth: 2,
-                borderColor: "#059669",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Text style={{ color: "#059669", fontSize: 16, fontWeight: "900" }}>Edit details</Text>
-            </Pressable>
+            <View style={{ padding: 16 }}>
+              <Text style={{ fontSize: 12, color: "#6B7280", marginBottom: 4 }}>
+                Country
+              </Text>
+              <Text style={{ fontSize: 16, fontWeight: "600", color: "#1F2937" }}>
+                {countryName}
+              </Text>
+            </View>
           </View>
         </View>
-      </View>
+
+        {/* Fee Notice */}
+        <View
+          style={{
+            backgroundColor: "#FEF3C7",
+            borderRadius: 8,
+            padding: 12,
+            marginTop: 20,
+            flexDirection: "row",
+            alignItems: "center",
+          }}
+        >
+          <Text style={{ fontSize: 14, marginRight: 8 }}>ℹ️</Text>
+          <Text style={{ fontSize: 13, color: "#92400E", flex: 1 }}>
+            Transfer fees may apply. Funds typically arrive within 24 hours.
+          </Text>
+        </View>
+
+        {/* Confirm Button */}
+        <Pressable
+          style={{
+            backgroundColor: sending ? "#9CA3AF" : "#16A34A",
+            borderRadius: 12,
+            padding: 18,
+            marginTop: 24,
+            alignItems: "center",
+            flexDirection: "row",
+            justifyContent: "center",
+          }}
+          onPress={handleConfirmSend}
+          disabled={sending}
+        >
+          {sending ? (
+            <>
+              <ActivityIndicator size="small" color="#fff" style={{ marginRight: 8 }} />
+              <Text style={{ color: "#fff", fontSize: 18, fontWeight: "700" }}>
+                Sending...
+              </Text>
+            </>
+          ) : (
+            <Text style={{ color: "#fff", fontSize: 18, fontWeight: "700" }}>
+              Confirm & Send
+            </Text>
+          )}
+        </Pressable>
+
+        {/* Cancel */}
+        <Pressable
+          style={{
+            padding: 16,
+            marginTop: 12,
+            alignItems: "center",
+          }}
+          onPress={() => router.back()}
+          disabled={sending}
+        >
+          <Text style={{ color: "#6B7280", fontSize: 16, fontWeight: "600" }}>
+            Cancel
+          </Text>
+        </Pressable>
+      </ScrollView>
     </ScreenShell>
   );
 }

@@ -3528,6 +3528,7 @@ walletTxStatusFailed: {
   color: "#EF4444",
 },
 
+
   
 });
 

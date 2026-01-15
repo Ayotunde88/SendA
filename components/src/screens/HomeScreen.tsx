@@ -34,8 +34,11 @@ import {
 import { getLocalBalance } from "../../../api/flutterwave";
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Path, Defs, LinearGradient as SvgGradient, Stop, Circle } from "react-native-svg";
+import { usePendingSettlements } from "../../../hooks/usePendingSettlements";
+import { PendingBadge } from "../../../components/PendingBadge";
+import ConversionStatusBanner from "../../ConversionStatusBanner";
 
-/** ---------------- Types ---------------- **/
+///** ---------------- Types ---------------- **/
 type Country = {
   code: string;
   name: string;
@@ -335,6 +338,10 @@ export default function HomeScreen() {
   const [totalBalance, setTotalBalance] = useState<number>(0);
   const [homeCurrency, setHomeCurrency] = useState<string>("");
   const [homeCurrencySymbol, setHomeCurrencySymbol] = useState<string>("");
+  
+  // Track request version to prevent stale updates from race conditions
+  const fetchVersionRef = React.useRef(0);
+  const [totalBalanceLoading, setTotalBalanceLoading] = useState(true);
 
   const [hideBalance, setHideBalance] = useState(false);
 
@@ -348,6 +355,71 @@ export default function HomeScreen() {
   const [chartLoading, setChartLoading] = useState(false);
   const [chartChangePercent, setChartChangePercent] = useState(0);
   const [emailVerified, setEmailVerified] = useState(false);
+
+  /** ---- Pending settlements (hybrid balance) ---- **/
+  const {
+    settlements: pendingSettlements,
+    hasPendingForCurrency,
+    getOptimisticBalance,
+    refresh: refreshPendingSettlements,
+    checkAndClearIfSettled,
+    removeSettlement,
+  } = usePendingSettlements();
+
+  // Clear pending settlements once API returns *settled* balances.
+  // We confirm settlement by comparing the fetched balance against the baseline captured at conversion time.
+  const clearSettledConversions = useCallback(
+    async (freshAccounts: UserAccount[]) => {
+      if (pendingSettlements.length === 0) return;
+
+      for (const settlement of pendingSettlements) {
+        const sellCcy = (settlement.sellCurrency || '').toUpperCase().trim();
+        const buyCcy = (settlement.buyCurrency || '').toUpperCase().trim();
+
+        const sellAccount = freshAccounts.find(
+          (a) => (a.currencyCode || '').toUpperCase().trim() === sellCcy
+        );
+        const buyAccount = freshAccounts.find(
+          (a) => (a.currencyCode || '').toUpperCase().trim() === buyCcy
+        );
+
+        const sellNeedsConfirm = Number(settlement.sellAmount || 0) !== 0;
+        const buyNeedsConfirm = Number(settlement.buyAmount || 0) !== 0;
+
+        const sellBaselineOk = typeof settlement.sellBalanceBefore === 'number';
+        const buyBaselineOk = typeof settlement.buyBalanceBefore === 'number';
+
+        const sellSettled = !sellNeedsConfirm
+          ? true
+          : sellAccount && sellBaselineOk
+            ? await checkAndClearIfSettled(
+                sellCcy,
+                Number(sellAccount.balance || 0),
+                Number(settlement.sellBalanceBefore) - Number(settlement.sellAmount || 0),
+                0.01
+              )
+            : false;
+
+        const buySettled = !buyNeedsConfirm
+          ? true
+          : buyAccount && buyBaselineOk
+            ? await checkAndClearIfSettled(
+                buyCcy,
+                Number(buyAccount.balance || 0),
+                Number(settlement.buyBalanceBefore) + Number(settlement.buyAmount || 0),
+                0.01
+              )
+            : false;
+
+        // If both sides (that we're tracking) are settled, remove the specific settlement record.
+        // Pass true to show a push notification that the settlement is complete.
+        if (sellSettled && buySettled) {
+          await removeSettlement(settlement.id, true);
+        }
+      }
+    },
+    [pendingSettlements, checkAndClearIfSettled, removeSettlement]
+  );
 
   // Load hide balance preference on mount
   useEffect(() => {
@@ -387,9 +459,21 @@ export default function HomeScreen() {
   );
 
   const fetchUserData = useCallback(async () => {
+    // Increment fetch version to track this request
+    const currentVersion = ++fetchVersionRef.current;
+    
     try {
-      const phone = await AsyncStorage.getItem("user_phone");
-      const storedUser = await AsyncStorage.getItem("user_info");
+      // ===== STEP 1: Refresh pending settlements FIRST and get fresh data =====
+      // This ensures we have the latest settlement state before fetching balances
+      const freshSettlements = await refreshPendingSettlements();
+      
+      if (currentVersion !== fetchVersionRef.current) return; // Stale request
+
+      // Fetch local storage items (fast)
+      const [phone, storedUser] = await Promise.all([
+        AsyncStorage.getItem("user_phone"),
+        AsyncStorage.getItem("user_info"),
+      ]);
 
       if (storedUser) {
         const userInfo = JSON.parse(storedUser);
@@ -398,51 +482,86 @@ export default function HomeScreen() {
         setUserName(String(firstName).trim());
       }
 
+      if (!phone) {
+        if (currentVersion === fetchVersionRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+          setTotalBalanceLoading(false);
+          setRatesLoading(false);
+        }
+        return;
+      }
+
+      // ===== STEP 2: PARALLEL FETCH - Countries, Profile, Accounts, Total Balance =====
+      const [countriesResult, profileResult, accountsResult, totalResult] = await Promise.allSettled([
+        getCountries(),
+        getUserProfile(phone),
+        getUserAccounts(phone, true),
+        getTotalBalance(phone),
+      ]);
+
+      if (currentVersion !== fetchVersionRef.current) return; // Stale request
+
+      // Process countries/flags
       let flagsMap: Record<string, string> = {};
       let disabledMap: Record<string, true> = {};
 
-      try {
-        const countriesData: Country[] = await getCountries();
-
+      if (countriesResult.status === 'fulfilled') {
+        const countriesData = countriesResult.value;
         for (const c of countriesData || []) {
           const flag = (c.flag || "").trim();
-
           const currencyKey = (c.currencyCode || "").toUpperCase().trim();
           if (currencyKey && flag && !flagsMap[currencyKey]) flagsMap[currencyKey] = flag;
-          if (currencyKey && c.currencyEnabled === false) disabledMap[currencyKey] = true;
+          if (currencyKey && (c as any).currencyEnabled === false) disabledMap[currencyKey] = true;
 
           const codeKey = (c.code || "").toUpperCase().trim();
           if (codeKey && flag && !flagsMap[codeKey]) flagsMap[codeKey] = flag;
-          if (codeKey && c.currencyEnabled === false) disabledMap[codeKey] = true;
+          if (codeKey && (c as any).currencyEnabled === false) disabledMap[codeKey] = true;
         }
-
         setFlagsByCurrency(flagsMap);
         setDisabledCurrencies(disabledMap);
-      } catch (e) {
-        console.log("Failed to load countries/flags:", e);
+      } else {
+        console.log("Failed to load countries/flags:", countriesResult.reason);
         setFlagsByCurrency({});
         setDisabledCurrencies({});
       }
 
-      let userAccounts: UserAccount[] = [];
+      // Process profile
       let userHomeCurrency = "";
-
-      if (phone) {
-        const res = await getUserProfile(phone);
+      if (profileResult.status === 'fulfilled') {
+        const res = profileResult.value;
         if (res.success && res.user) {
           setKycStatus(res.user.kycStatus);
-
           const firstName = res.user.firstName || res.user.first_name || "";
           if (firstName) setUserName(String(firstName).trim());
-
           if (res.user.homeCurrency) {
             userHomeCurrency = res.user.homeCurrency;
             setHomeCurrency(res.user.homeCurrency);
             setHomeCurrencySymbol(res.user.homeCurrencySymbol || res.user.homeCurrency);
           }
         }
+      }
 
-        const accountsRes = await getUserAccounts(phone, true);
+      // Process total balance (set immediately, don't wait for other processing)
+      if (totalResult.status === 'fulfilled') {
+        const totalRes = totalResult.value;
+        if (totalRes.success) {
+          setTotalBalance(totalRes.totalBalance || 0);
+          if (totalRes.homeCurrency) {
+            setHomeCurrency(totalRes.homeCurrency);
+            setHomeCurrencySymbol(totalRes.homeCurrencySymbol || totalRes.homeCurrency);
+          }
+        }
+        setTotalBalanceLoading(false);
+      } else {
+        console.log("Failed to fetch total balance:", totalResult.reason);
+        setTotalBalanceLoading(false);
+      }
+
+      // Process accounts
+      let userAccounts: UserAccount[] = [];
+      if (accountsResult.status === 'fulfilled') {
+        const accountsRes = accountsResult.value;
         if (accountsRes.success && accountsRes.accounts) {
           userAccounts = accountsRes.accounts;
 
@@ -452,11 +571,9 @@ export default function HomeScreen() {
             balance: a.balance
           })));
 
-          // Ensure ALL exotic currencies reflect the local ledger balance (not CurrencyCloud)
-          // Use both the backend flag (check both snake_case and camelCase) AND known exotic list as fallback
+          // Fetch local ledger balances for exotic currencies in parallel
           const localLedgerAccounts = userAccounts.filter((a: any) => {
             const code = (a.currencyCode || a.currency_code || "").toUpperCase().trim();
-            // Check all possible property names for exotic flag
             const backendExotic = Boolean(
               a.isExotic || 
               a.is_exotic || 
@@ -464,25 +581,20 @@ export default function HomeScreen() {
               a.currency?.is_exotic
             );
             const knownExotic = KNOWN_EXOTIC_CURRENCIES.includes(code);
-            const isExotic = backendExotic || knownExotic;
-
-            console.log(`[HomeScreen] Checking ${code}: backendExotic=${backendExotic}, knownExotic=${knownExotic}, final=${isExotic}`);
-            return isExotic;
+            return backendExotic || knownExotic;
           });
-
-          console.log('[HomeScreen] Local ledger accounts to fetch:', localLedgerAccounts.map(a => a.currencyCode));
 
           if (localLedgerAccounts.length > 0) {
             try {
               const results = await Promise.all(
                 localLedgerAccounts.map(async (a) => {
                   const ccy = (a.currencyCode || "").toUpperCase().trim();
-                  console.log(`[HomeScreen] Fetching local balance for ${ccy}...`);
                   const res = await getLocalBalance(phone, ccy);
-                  console.log(`[HomeScreen] Local balance for ${ccy}:`, res);
                   return { ccy, res };
                 })
               );
+
+              if (currentVersion !== fetchVersionRef.current) return;
 
               const balanceByCurrency = new Map<string, number>();
               for (const { ccy, res } of results) {
@@ -490,8 +602,6 @@ export default function HomeScreen() {
                   balanceByCurrency.set(ccy, Number(res.balance || 0));
                 }
               }
-
-              console.log('[HomeScreen] Balance map:', Object.fromEntries(balanceByCurrency));
 
               userAccounts = userAccounts.map((a) => {
                 const ccy = (a.currencyCode || "").toUpperCase().trim();
@@ -505,24 +615,21 @@ export default function HomeScreen() {
             }
           }
 
-          setAccounts(userAccounts);
+          if (currentVersion === fetchVersionRef.current) {
+            setAccounts(userAccounts);
+          }
+
+          // Clear any pending settlements that have now settled
+          await clearSettledConversions(userAccounts);
         } else {
           setAccounts([]);
         }
-
-        try {
-          const totalRes = await getTotalBalance(phone);
-          if (totalRes.success) {
-            setTotalBalance(totalRes.totalBalance || 0);
-            if (totalRes.homeCurrency) {
-              setHomeCurrency(totalRes.homeCurrency);
-              setHomeCurrencySymbol(totalRes.homeCurrencySymbol || totalRes.homeCurrency);
-            }
-          }
-        } catch (e) {
-          console.log("Failed to fetch total balance:", e);
-        }
+      } else {
+        setAccounts([]);
       }
+
+      // ===== FETCH EXCHANGE RATES (after accounts are ready) =====
+      if (currentVersion !== fetchVersionRef.current) return;
 
       setRatesLoading(true);
       try {
@@ -530,15 +637,21 @@ export default function HomeScreen() {
           .map((a) => (a.currencyCode || "").toUpperCase().trim())
           .filter(Boolean);
 
-        if (userHomeCurrency && !currencyCodes.includes(userHomeCurrency)) currencyCodes.push(userHomeCurrency);
+        if (userHomeCurrency && !currencyCodes.includes(userHomeCurrency)) {
+          currencyCodes.push(userHomeCurrency);
+        }
 
         const pairs: string[] = [];
         for (const from of currencyCodes) {
-          for (const to of currencyCodes) if (from !== to) pairs.push(`${from}_${to}`);
+          for (const to of currencyCodes) {
+            if (from !== to) pairs.push(`${from}_${to}`);
+          }
         }
 
         if (pairs.length > 0) {
           const ratesRes = await getExchangeRates(pairs.join(","));
+          if (currentVersion !== fetchVersionRef.current) return;
+
           if (ratesRes.success && ratesRes.rates) {
             const formatted: DisplayRate[] = ratesRes.rates.map((r: any) => {
               const from = (r.fromCurrency || r.buy_currency || "").toUpperCase();
@@ -565,21 +678,29 @@ export default function HomeScreen() {
         }
       } catch (e) {
         console.log("Failed to load exchange rates:", e);
-        setDisplayRates([]);
+        if (currentVersion === fetchVersionRef.current) {
+          setDisplayRates([]);
+        }
       } finally {
-        setRatesLoading(false);
+        if (currentVersion === fetchVersionRef.current) {
+          setRatesLoading(false);
+        }
       }
     } catch (e) {
       console.log("Error fetching user data:", e);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (currentVersion === fetchVersionRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+        setTotalBalanceLoading(false);
+      }
     }
-  }, []);
+  }, [clearSettledConversions, refreshPendingSettlements]); // refreshPendingSettlements is stable (useCallback with no deps)
 
   useFocusEffect(
     useCallback(() => {
       setLoading(true);
+      // fetchUserData already calls refreshPendingSettlements internally - no separate call needed
       fetchUserData();
 
       // ✅ Load recent recipients whenever Home is focused
@@ -592,6 +713,7 @@ export default function HomeScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
+    // fetchUserData already calls refreshPendingSettlements internally - no separate call needed
     fetchUserData();
 
     // ✅ refresh recents too
@@ -748,6 +870,17 @@ export default function HomeScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <ScreenShell padded={false}>
         <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
+          {/* Conversion Status Banner - shows pending settlements with debit/credit status */}
+          {pendingSettlements.length > 0 && (
+            <ConversionStatusBanner
+              settlements={pendingSettlements}
+              flagsByCurrency={flagsByCurrency}
+              onDismiss={async (id) => {
+                await removeSettlement(id);
+              }}
+            />
+          )}
+
           {!loading && !isKycApproved && (
             <View
               style={{
@@ -780,7 +913,7 @@ export default function HomeScreen() {
                 <Text style={{ fontWeight: "600", fontSize: 14, color: "#222", marginBottom: 2 }}>{userName}</Text>
               ) : null}
 
-              {ratesLoading && accounts.length > 0 ? (
+              {totalBalanceLoading ? (
                 <ActivityIndicator size="small" color={COLORS.primary} />
               ) : (
                 <Pressable onPress={toggleHideBalance} style={{ flexDirection: "row", alignItems: "center" }}>
@@ -820,6 +953,11 @@ export default function HomeScreen() {
             ) : (
               accounts.map((a) => {
                 const walletDisabled = isWalletDisabled(a);
+                const currencyCode = (a.currencyCode || "").toUpperCase().trim();
+                const hasPending = hasPendingForCurrency(currencyCode);
+                // ALWAYS use getOptimisticBalance - it returns actualBalance when no pending exists
+                // This prevents flicker from conditional logic switching between sources
+                const displayBalance = getOptimisticBalance(a.balance || 0, currencyCode);
 
                 return (
                   <Pressable
@@ -874,6 +1012,10 @@ export default function HomeScreen() {
                         >
                           <Text style={{ color: "#fff", fontSize: 10, fontWeight: "800" }}>DISABLED</Text>
                         </View>
+                      ) : hasPending ? (
+                        <View style={{ position: "absolute", top: 10, right: 10 }}>
+                          <PendingBadge visible={true} label="Settling" size="small" variant="pill" />
+                        </View>
                       ) : null}
 
                       <View style={styles.accountHeader}>
@@ -881,7 +1023,7 @@ export default function HomeScreen() {
                         <Text style={styles.accountLabelWhite}>{a.currencyCode}</Text>
                       </View>
 
-                      <Text style={styles.accountAmountWhite}>{formatBalance(a.balance)}</Text>
+                      <Text style={styles.accountAmountWhite}>{formatBalance(displayBalance)}</Text>
 
                       <Image
                         source={require("../../../assets/images/icons/icons-icon.png")}
