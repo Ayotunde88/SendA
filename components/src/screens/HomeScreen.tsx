@@ -870,16 +870,7 @@ export default function HomeScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <ScreenShell padded={false}>
         <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
-          {/* Conversion Status Banner - shows pending settlements with debit/credit status */}
-          {pendingSettlements.length > 0 && (
-            <ConversionStatusBanner
-              settlements={pendingSettlements}
-              flagsByCurrency={flagsByCurrency}
-              onDismiss={async (id) => {
-                await removeSettlement(id);
-              }}
-            />
-          )}
+          
 
           {!loading && !isKycApproved && (
             <View
@@ -1036,7 +1027,16 @@ export default function HomeScreen() {
               })
             )}
           </ScrollView>
-
+          {/* Conversion Status Banner - shows pending settlements with debit/credit status */}
+          {pendingSettlements.length > 0 && (
+            <ConversionStatusBanner
+              settlements={pendingSettlements}
+              flagsByCurrency={flagsByCurrency}
+              onDismiss={async (id) => {
+                await removeSettlement(id);
+              }}
+            />
+          )}
           <View style={styles.actionsRow}>
             <PrimaryButton
               title="Transfer Now"
