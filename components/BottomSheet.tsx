@@ -9,7 +9,7 @@ interface Props {
   title?: string;
 }
 
-export default function BottomSheet({ open, onClose, children, title = "Details" }: Props) {
+export default function BottomSheet({ open, onClose, children, title = "" }: Props) {
   return (
     <Modal
       visible={open}

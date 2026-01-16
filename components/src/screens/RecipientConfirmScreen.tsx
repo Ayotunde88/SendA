@@ -1,3 +1,15 @@
+/**
+ * RecipientConfirmScreen - Confirm and execute transfer to Flutterwave-supported countries
+ * 
+ * Handles the final confirmation and transfer execution for:
+ * - NGN (Nigeria)
+ * - GHS (Ghana)
+ * - KES (Kenya)
+ * - RWF (Rwanda)
+ * - Other Flutterwave-supported currencies
+ * 
+ * Requires PIN verification before executing the transfer.
+ */
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -11,6 +23,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import ScreenShell from "../../../components/ScreenShell";
+import PinVerificationModal from "../../../components/PinVerificationModal";
 import { styles } from "../../../theme/styles";
 import {
   sendFlutterwave,
@@ -43,6 +56,7 @@ export default function RecipientConfirmScreen() {
 
   const [userPhone, setUserPhone] = useState("");
   const [sending, setSending] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
 
   // Parse recipient data
   const recipient: RecipientData = params.recipient 
@@ -64,6 +78,15 @@ export default function RecipientConfirmScreen() {
       if (phone) setUserPhone(phone);
     });
   }, []);
+
+  const handleConfirmButtonPress = () => {
+    if (!recipient || !userPhone) {
+      Alert.alert("Error", "Missing recipient or user information");
+      return;
+    }
+    // Show PIN verification modal
+    setShowPinModal(true);
+  };
 
   const handleConfirmSend = async () => {
     if (!recipient || !userPhone) {
@@ -306,7 +329,7 @@ export default function RecipientConfirmScreen() {
             flexDirection: "row",
             justifyContent: "center",
           }}
-          onPress={handleConfirmSend}
+          onPress={handleConfirmButtonPress}
           disabled={sending}
         >
           {sending ? (
@@ -338,6 +361,15 @@ export default function RecipientConfirmScreen() {
           </Text>
         </Pressable>
       </ScrollView>
+
+      {/* PIN Verification Modal */}
+      <PinVerificationModal
+        visible={showPinModal}
+        onClose={() => setShowPinModal(false)}
+        onSuccess={handleConfirmSend}
+        title="Authorize Transfer"
+        subtitle="Enter your 4-digit PIN to confirm this transfer"
+      />
     </ScreenShell>
   );
 }

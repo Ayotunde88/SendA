@@ -1,9 +1,3 @@
-/**
- * PendingBadge Component
- * 
- * Shows a subtle "pending settlement" indicator on wallet cards
- * when a conversion is awaiting CurrencyCloud confirmation.
- */
 import React, { useEffect, useRef } from 'react';
 import { View, Text, Animated, StyleSheet } from 'react-native';
 

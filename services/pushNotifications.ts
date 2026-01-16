@@ -10,12 +10,13 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from '../api/config';
+import { COLORS } from '@/theme/colors';
 
 const PUSH_TOKEN_KEY = 'expo_push_token';
 
 // Configure how notifications are handled when app is in foreground
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
+  handleNotification: async (): Promise<Notifications.NotificationBehavior> => ({
     shouldShowAlert: true,
     shouldShowBanner: true,
     shouldShowList: true,
@@ -30,10 +31,10 @@ Notifications.setNotificationHandler({
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
   let token: string | null = null;
 
-  // Must be a physical device
+  // Warn if not a physical device (push won't work, but local notifications will)
   if (!Device.isDevice) {
-    console.log('[PushNotifications] Must use physical device for push notifications');
-    return null;
+    console.log('[PushNotifications] Simulator detected - push notifications require physical device. Local notifications will still work.');
+    // Continue to set up channels and permissions for local notification testing
   }
 
   // Check/request permissions
@@ -51,18 +52,22 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
   }
 
   try {
-    // Get the Expo push token
-    const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
-    
-    const pushToken = await Notifications.getExpoPushTokenAsync({
-      projectId,
-    });
-    
-    token = pushToken.data;
-    console.log('[PushNotifications] Token:', token);
+    // Get the Expo push token (only works on physical devices)
+    if (Device.isDevice) {
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+      
+      const pushToken = await Notifications.getExpoPushTokenAsync({
+        projectId,
+      });
+      
+      token = pushToken.data;
+      console.log('[PushNotifications] Token:', token);
 
-    // Store locally
-    await AsyncStorage.setItem(PUSH_TOKEN_KEY, token);
+      // Store locally
+      await AsyncStorage.setItem(PUSH_TOKEN_KEY, token);
+    } else {
+      console.log('[PushNotifications] Skipping token fetch on simulator');
+    }
   } catch (error) {
     console.error('[PushNotifications] Failed to get push token:', error);
   }
@@ -73,7 +78,7 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
       name: 'Settlement Notifications',
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#22C55E',
+      lightColor: COLORS.green,
       sound: 'default',
     });
 
@@ -81,7 +86,7 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
       name: 'Transaction Notifications',
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#3B82F6',
+      lightColor: COLORS.blue,
       sound: 'default',
     });
   }
@@ -199,11 +204,9 @@ export function addNotificationReceivedListener(
  * Remove a subscription
  */
 export function removeNotificationSubscription(subscription: Notifications.Subscription): void {
-  // expo-notifications no longer exposes a global removeNotificationSubscription;
-  // subscriptions provide a remove() method — call it if available.
-  if (subscription && typeof (subscription as any).remove === 'function') {
-    (subscription as any).remove();
-  }
+  // The expo-notifications API returns a Subscription object that exposes a remove() method.
+  // Calling subscription.remove() is the supported way to unsubscribe.
+  subscription.remove();
 }
 
 /**

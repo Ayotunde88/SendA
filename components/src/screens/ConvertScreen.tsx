@@ -25,6 +25,35 @@ import {
 } from "../../../api/config";
 import { addPendingSettlement, usePendingSettlements } from "../../UsePendingSettlements";
 
+
+async function applyOptimisticCacheUpdate(params: {
+  sellCurrency: string;
+  buyCurrency: string;
+  sellAmount: number;
+  buyAmount: number;
+}) {
+  const raw = await AsyncStorage.getItem("cached_accounts_v1");
+  const list = raw ? JSON.parse(raw) : [];
+  if (!Array.isArray(list)) return;
+
+  const sell = params.sellCurrency.toUpperCase().trim();
+  const buy = params.buyCurrency.toUpperCase().trim();
+
+  const updated = list.map((a: any) => {
+    const ccy = String(a.currencyCode || "").toUpperCase().trim();
+    const bal = typeof a.balance === "number" ? a.balance : null;
+
+    if (bal === null) return a;
+
+    if (ccy === sell) return { ...a, balance: bal - params.sellAmount };
+    if (ccy === buy) return { ...a, balance: bal + params.buyAmount };
+    return a;
+  });
+
+  await AsyncStorage.setItem("cached_accounts_v1", JSON.stringify(updated));
+}
+
+
 // Quick amount button component
 const QuickAmountButton = ({
   label,
@@ -269,97 +298,125 @@ export default function ConvertScreen() {
   };
 
   const executeConversionRequest = async () => {
-    if (!fromWallet || !toWallet || !fromAmount) return;
+  if (!fromWallet || !toWallet || !fromAmount) return;
 
-    setConverting(true);
-    try {
-      console.log("[ConvertScreen] Executing conversion:", {
-        phone: userPhone,
-        from: fromWallet.currencyCode,
-        to: toWallet.currencyCode,
-        amount: parseFloat(fromAmount),
+  const sellBalanceBefore = fromDisplayBalance; // ✅ capture before
+  const buyBalanceBefore = toDisplayBalance;   // ✅ capture before
+
+  setConverting(true);
+  try {
+    const sellAmountInput = parseFloat(fromAmount);
+
+    const response = await executeConversion(
+      userPhone,
+      fromWallet.currencyCode,
+      toWallet.currencyCode,
+      sellAmountInput
+    );
+
+    if (response.success) {
+      const conversionData = response.conversion;
+
+      const sellAmount = Number(conversionData?.sellAmount ?? sellAmountInput);
+      const buyAmount = Number(conversionData?.buyAmount ?? parseFloat(toAmount) ?? 0);
+
+      const sellCurrency = String(conversionData?.sellCurrency ?? fromWallet.currencyCode).toUpperCase();
+      const buyCurrency = String(conversionData?.buyCurrency ?? toWallet.currencyCode).toUpperCase();
+
+      const conversionId = conversionData?.id || response.conversionId || response.id;
+
+      // ✅ Always add pending if settlement is not instant
+      if (response.balanceUpdatePending) {
+        await addPendingSettlement({
+          sellCurrency,
+          buyCurrency,
+          sellAmount,
+          buyAmount,
+          conversionId,
+          sellBalanceBefore,
+          buyBalanceBefore,
+        } as any);
+      }
+
+      // ✅ Update persistent cache immediately (Home & Wallet will reflect instantly)
+      await applyOptimisticCacheUpdate({
+        sellCurrency,
+        buyCurrency,
+        sellAmount,
+        buyAmount,
       });
 
-      const response = await executeConversion(
-        userPhone,
-        fromWallet.currencyCode,
-        toWallet.currencyCode,
-        parseFloat(fromAmount)
+      // ✅ Update current screen wallets immediately too
+      setWallets((prev) =>
+        prev.map((w) => {
+          const ccy = w.currencyCode.toUpperCase();
+          if (ccy === sellCurrency) {
+            return { ...w, balance: (typeof w.balance === "number" ? w.balance : 0) - sellAmount };
+          }
+          if (ccy === buyCurrency) {
+            return { ...w, balance: (typeof w.balance === "number" ? w.balance : 0) + buyAmount };
+          }
+          return w;
+        })
       );
 
-      console.log("[ConvertScreen] Conversion response:", response);
+      // also update the selected wallets objects
+      setFromWallet((prev) =>
+        prev ? { ...prev, balance: (typeof prev.balance === "number" ? prev.balance : 0) - sellAmount } : prev
+      );
+      setToWallet((prev) =>
+        prev ? { ...prev, balance: (typeof prev.balance === "number" ? prev.balance : 0) + buyAmount } : prev
+      );
 
-      if (response.success) {
-        const conversionData = response.conversion;
-        const sellAmount = conversionData?.sellAmount || parseFloat(fromAmount);
-        const buyAmount = conversionData?.buyAmount || parseFloat(toAmount);
-        const sellCurrency = conversionData?.sellCurrency || fromWallet.currencyCode;
-        const buyCurrency = conversionData?.buyCurrency || toWallet.currencyCode;
-        
-        // If balance update is pending (CurrencyCloud hasn't settled yet), 
-        // add to pending settlements for optimistic UI updates
-        if (response.balanceUpdatePending) {
-          console.log("[ConvertScreen] Balance pending settlement, adding optimistic update");
-          await addPendingSettlement({
-            sellCurrency,
-            buyCurrency,
-            sellAmount,
-            buyAmount,
-            conversionId: conversionData?.id,
-          });
-        }
-        
-        // Navigate to success result screen with conversion details
-        const pendingNote = response.balanceUpdatePending 
-          ? "\n\nBalance will update shortly once settlement completes."
-          : "";
-        
-        router.push({
-          pathname: "/result",
-          params: {
-            type: "success",
-            title: response.balanceUpdatePending ? "Conversion Processing" : "Conversion Complete",
-            message: `You converted ${sellAmount.toFixed(2)} ${sellCurrency} to ${buyAmount.toFixed(2)} ${buyCurrency}${pendingNote}`,
-            subtitle: `Rate: 1 ${sellCurrency} = ${conversionData?.rate?.toFixed(4) || rate?.toFixed(4)} ${buyCurrency}`,
-            primaryText: "Done",
-            primaryRoute: "/(tabs)",
-            secondaryText: "View wallet",
-            secondaryRoute: "/(tabs)/wallet",
-          },
-        });
-      } else {
-        // Navigate to error result screen
-        router.push({
-          pathname: "/result",
-          params: {
-            type: "error",
-            title: "Conversion Failed",
-            message: response.message || "Something went wrong with the conversion.",
-            primaryText: "Try again",
-            primaryRoute: "back",
-            secondaryText: "Contact support",
-            secondaryRoute: "/help",
-          },
-        });
-      }
-    } catch (error) {
-      console.error("[ConvertScreen] Conversion error:", error);
+      const pendingNote = response.balanceUpdatePending
+        ? "\n\nBalance will update shortly once settlement completes."
+        : "";
+
+      router.push({
+        pathname: "/result",
+        params: {
+          type: "success",
+          title: response.balanceUpdatePending ? "Conversion Processing" : "Conversion Complete",
+          message: `You converted ${sellAmount.toFixed(2)} ${sellCurrency} to ${buyAmount.toFixed(2)} ${buyCurrency}${pendingNote}`,
+          subtitle: `Rate: 1 ${sellCurrency} = ${(conversionData?.rate ?? rate ?? 0).toFixed(4)} ${buyCurrency}`,
+          primaryText: "Done",
+          primaryRoute: "/(tabs)",
+          secondaryText: "View wallet",
+          secondaryRoute: "/wallet",
+        },
+      });
+    } else {
       router.push({
         pathname: "/result",
         params: {
           type: "error",
           title: "Conversion Failed",
-          message: "Network error. Please check your connection and try again.",
+          message: response.message || "Something went wrong with the conversion.",
           primaryText: "Try again",
           primaryRoute: "back",
           secondaryText: "Contact support",
           secondaryRoute: "/help",
         },
       });
-    } finally {
-      setConverting(false);
     }
-  };
+  } catch (error) {
+    router.push({
+      pathname: "/result",
+      params: {
+        type: "error",
+        title: "Conversion Failed",
+        message: "Network error. Please check your connection and try again.",
+        primaryText: "Try again",
+        primaryRoute: "back",
+        secondaryText: "Contact support",
+        secondaryRoute: "/help",
+      },
+    });
+  } finally {
+    setConverting(false);
+  }
+};
+
 
   const swapCurrencies = () => {
     const temp = fromWallet;
@@ -503,18 +560,15 @@ export default function ConvertScreen() {
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={{ flex: 1 }}
         >
-          <View style={styles.simpleHeader}>
+          <View style={styles.headerRow}>
             <Pressable onPress={() => router.back()} style={styles.backBtn}>
               <Text style={styles.backIcon}>←</Text>
             </Pressable>
-            <View style={{ flex: 1 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>Convert Currency</Text>
+              <Text style={styles.subtitle}>Convert money from one currency to another</Text>
+            </View>
           </View>
-
-          <Text style={[styles.bigTitle, { marginTop: 8 }]}>Convert Currency</Text>
-          <Text style={styles.convertHint}>
-            Convert money from one currency to another
-          </Text>
-
           {/* FROM Section */}
           <View style={styles.convertBox}>
             <Text style={{ color: "#2E9E6A", fontWeight: "900" }}>

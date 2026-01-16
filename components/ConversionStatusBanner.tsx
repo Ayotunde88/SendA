@@ -6,6 +6,7 @@ import React from "react";
 import { View, Text, Pressable, Animated, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { PendingSettlement } from "../hooks/usePendingSettlements";
+import { COLORS } from "@/theme/colors";
 
 interface ConversionStatusBannerProps {
   settlements: PendingSettlement[];
@@ -33,6 +34,28 @@ const formatAmount = (amount: number, currency: string) => {
   })} ${currency}`;
 };
 
+// Fallback flag emojis for currencies not in the API response
+const FALLBACK_FLAGS: Record<string, string> = {
+  USD: "🇺🇸",
+  AUD: "🇦🇺",
+  GBP: "🇬🇧",
+  EUR: "🇪🇺",
+  CAD: "🇨🇦",
+  NGN: "🇳🇬",
+  GHS: "🇬🇭",
+  KES: "🇰🇪",
+  ZAR: "🇿🇦",
+  RWF: "🇷🇼",
+  UGX: "🇺🇬",
+  TZS: "🇹🇿",
+  ZMW: "🇿🇲",
+};
+
+const getFlag = (currency: string, flagsByCurrency: Record<string, string>) => {
+  const key = (currency || "").toUpperCase().trim();
+  return flagsByCurrency[key] || FALLBACK_FLAGS[key] || "🏳️";
+};
+
 export default function ConversionStatusBanner({
   settlements,
   onDismiss,
@@ -43,8 +66,8 @@ export default function ConversionStatusBanner({
   return (
     <View style={styles.container}>
       {settlements.map((settlement) => {
-        const sellFlag = flagsByCurrency[settlement.sellCurrency] || "🏳️";
-        const buyFlag = flagsByCurrency[settlement.buyCurrency] || "🏳️";
+        const sellFlag = getFlag(settlement.sellCurrency, flagsByCurrency);
+        const buyFlag = getFlag(settlement.buyCurrency, flagsByCurrency);
         const hasSellPending = Number(settlement.sellAmount || 0) > 0;
         const hasBuyPending = Number(settlement.buyAmount || 0) > 0;
 
@@ -54,7 +77,7 @@ export default function ConversionStatusBanner({
             <View style={styles.header}>
               <View style={styles.headerLeft}>
                 <View style={styles.pulsingDot} />
-                <Text style={styles.headerTitle}>Conversion Settling</Text>
+                <Text style={styles.headerTitle}>Funds Settling</Text>
               </View>
               <Text style={styles.timestamp}>{formatTime(settlement.createdAt)}</Text>
             </View>
@@ -109,7 +132,7 @@ export default function ConversionStatusBanner({
             <View style={styles.footer}>
               <Ionicons name="time-outline" size={12} color="#9CA3AF" />
               <Text style={styles.footerText}>
-                Balance will update once settlement completes
+                Banner will disappear once settlement completes
               </Text>
             </View>
 
@@ -118,7 +141,7 @@ export default function ConversionStatusBanner({
               <Pressable
                 style={styles.dismissButton}
                 onPress={() => onDismiss(settlement.id)}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 15 }}
               >
                 <Ionicons name="close" size={16} color="#9CA3AF" />
               </Pressable>
@@ -172,8 +195,12 @@ const styles = StyleSheet.create({
     color: "#1F2937",
   },
   timestamp: {
-    fontSize: 12,
+    fontSize: 14,
     color: "#9CA3AF",
+    position: "relative",
+    right: 50,
+    fontWeight: "600",
+    
   },
   statusContainer: {
     gap: 8,
@@ -209,10 +236,10 @@ const styles = StyleSheet.create({
   statusAmount: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#EF4444",
+    color: COLORS.red,
   },
   creditAmount: {
-    color: "#22C55E",
+    color: COLORS.green,
   },
   arrowContainer: {
     flexDirection: "row",
@@ -246,8 +273,8 @@ const styles = StyleSheet.create({
     borderTopColor: "#F3F4F6",
   },
   footerText: {
-    fontSize: 11,
-    color: "#9CA3AF",
+    fontSize: 13,
+    color: COLORS.gray,
   },
   dismissButton: {
     position: "absolute",

@@ -1,9 +1,3 @@
-/**
- * usePendingSettlements Hook
- * 
- * Manages optimistic balance updates for conversions that are pending CurrencyCloud settlement.
- * Stores pending amounts locally, applies them to displayed balances, and polls until confirmed.
- */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -36,6 +30,9 @@ export interface PendingSettlementsByWallet {
     pendingDebit: number;  // Amount being deducted (show as negative adjustment)
     pendingCredit: number; // Amount being added (show as positive adjustment)
     hasPending: boolean;
+    // Baselines: used to detect if API already reflects the settlement
+    sellBalanceBefore?: number;
+    buyBalanceBefore?: number;
   };
 }
 
@@ -135,6 +132,10 @@ export function aggregatePendingByCurrency(settlements: PendingSettlement[]): Pe
     }
     result[sell].pendingDebit += Number(s.sellAmount || 0);
     result[sell].hasPending = true;
+    // Track baseline for sell side
+    if (typeof s.sellBalanceBefore === 'number') {
+      result[sell].sellBalanceBefore = s.sellBalanceBefore;
+    }
 
     // Credit to buy currency
     if (!result[buy]) {
@@ -142,12 +143,16 @@ export function aggregatePendingByCurrency(settlements: PendingSettlement[]): Pe
     }
     result[buy].pendingCredit += Number(s.buyAmount || 0);
     result[buy].hasPending = true;
+    // Track baseline for buy side
+    if (typeof s.buyBalanceBefore === 'number') {
+      result[buy].buyBalanceBefore = s.buyBalanceBefore;
+    }
   }
 
   return result;
 }
 
-// Calculate optimistic balance
+// Calculate optimistic balance - only applies delta if API hasn't already settled
 export function getOptimisticBalance(
   actualBalance: number,
   currencyCode: string,
@@ -157,7 +162,39 @@ export function getOptimisticBalance(
   const pending = pendingByCurrency[key];
   if (!pending) return actualBalance;
 
-  return actualBalance - pending.pendingDebit + pending.pendingCredit;
+  const tolerance = 0.01;
+
+  // For DEBIT (sell side): only adjust if we have baseline AND balance hasn't changed
+  if (pending.pendingDebit > 0) {
+    if (typeof pending.sellBalanceBefore === 'number') {
+      // Check if balance is still at baseline (not yet settled by API)
+      if (Math.abs(actualBalance - pending.sellBalanceBefore) < tolerance) {
+        // API hasn't settled yet - show optimistic (debited) balance
+        return pending.sellBalanceBefore - pending.pendingDebit;
+      }
+      // API already shows different balance - trust the API
+      return actualBalance;
+    }
+    // No baseline stored - trust actual balance (don't guess)
+    return actualBalance;
+  }
+
+  // For CREDIT (buy side): only adjust if we have baseline AND balance hasn't changed
+  if (pending.pendingCredit > 0) {
+    if (typeof pending.buyBalanceBefore === 'number') {
+      // Check if balance is still at baseline (not yet settled by API)
+      if (Math.abs(actualBalance - pending.buyBalanceBefore) < tolerance) {
+        // API hasn't settled yet - show optimistic (credited) balance
+        return pending.buyBalanceBefore + pending.pendingCredit;
+      }
+      // API already shows different balance - trust the API
+      return actualBalance;
+    }
+    // No baseline stored - trust actual balance (don't guess)
+    return actualBalance;
+  }
+
+  return actualBalance;
 }
 
 // Check if a currency has pending settlements
