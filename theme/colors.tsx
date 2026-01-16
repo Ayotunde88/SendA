@@ -13,4 +13,5 @@ primary: "#2FBF71",
   yellow: "#db8f0dff",
   red: "#EF4444",
   gray: "#6B7280",
+  
 };

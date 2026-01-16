@@ -3,8 +3,9 @@ import { Stack, useRouter, useSegments } from "expo-router";
 import { COLORS } from "../theme/colors";
 import { useFonts, Inter_400Regular, Inter_600SemiBold } from "@expo-google-fonts/inter";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { NotificationProvider } from "../context/NotificationContext";
 
-export default function RootLayout() {
+function RootLayoutContent() {
   const router = useRouter();
   const segments = useSegments();
   const [authChecked, setAuthChecked] = useState(false);
@@ -35,7 +36,7 @@ export default function RootLayout() {
           "globalaccount",
         ]);
 
-        // // ✅ Allow if current route is public (either in first or second segment)
+        // ✅ Allow if current route is public (either in first or second segment)
         const isPublic = publicScreens.has(first) || publicScreens.has(second);
 
         // ✅ If you are using a route group for auth like "(auth)", allow that group too
@@ -91,7 +92,6 @@ export default function RootLayout() {
       <Stack.Screen name="exchangerates" options={{ title: "Exchange Rates" }} />
       <Stack.Screen name="all-transactions" options={{ title: "Transactions" }} />
       <Stack.Screen name="transactiondetail/[reference]" options={{ title: "Transaction Details" }} />
-
       <Stack.Screen name="send-money-ngn" options={{ title: "Send money" }} />
       <Stack.Screen name="recipients" options={{ title: "" }} />
       <Stack.Screen name="recipient-details" options={{ title: "" }} />
@@ -99,5 +99,13 @@ export default function RootLayout() {
       <Stack.Screen name="fraud-aware" options={{ title: "" }} />
       <Stack.Screen name="pin" options={{ title: "" }} />
     </Stack>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <NotificationProvider>
+      <RootLayoutContent />
+    </NotificationProvider>
   );
 }

@@ -1,20 +1,20 @@
 /**
  * Push Notification Service
- * 
- * Handles push notification registration, permissions, and token management.
- * Used to receive settlement notifications when conversions complete.
+ *
+ * - Remote push uses Expo push tokens (requires a real device).
+ * - Local notifications can work on simulator for testing.
  */
-import * as Notifications from 'expo-notifications';
-import * as Device from 'expo-device';
-import Constants from 'expo-constants';
-import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_BASE_URL } from '../api/config';
-import { COLORS } from '@/theme/colors';
+import * as Notifications from "expo-notifications";
+import * as Device from "expo-device";
+import Constants from "expo-constants";
+import { Platform } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { API_BASE_URL } from "../api/config";
+import { COLORS } from "@/theme/colors";
 
-const PUSH_TOKEN_KEY = 'expo_push_token';
+const PUSH_TOKEN_KEY = "expo_push_token";
 
-// Configure how notifications are handled when app is in foreground
+// Foreground behavior
 Notifications.setNotificationHandler({
   handleNotification: async (): Promise<Notifications.NotificationBehavior> => ({
     shouldShowAlert: true,
@@ -25,89 +25,104 @@ Notifications.setNotificationHandler({
   }),
 });
 
+function getExpoProjectId(): string | undefined {
+  // Works across Expo Go / Dev Builds / EAS builds depending on runtime
+  // Prefer EAS projectId if present.
+  const easProjectId =
+    (Constants as any)?.expoConfig?.extra?.eas?.projectId ??
+    (Constants as any)?.easConfig?.projectId ??
+    (Constants as any)?.expoConfig?.extra?.projectId;
+
+  return typeof easProjectId === "string" && easProjectId.length > 0
+    ? easProjectId
+    : undefined;
+}
+
 /**
- * Register for push notifications and get the Expo push token
+ * Register permissions and (if on real device) get Expo push token
  */
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
-  let token: string | null = null;
+  // Android channels must be set before notifications are shown on Android
+  if (Platform.OS === "android") {
+    await Notifications.setNotificationChannelAsync("settlements", {
+      name: "Settlement Notifications",
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: COLORS.green,
+      sound: "default",
+    });
 
-  // Warn if not a physical device (push won't work, but local notifications will)
+    await Notifications.setNotificationChannelAsync("transactions", {
+      name: "Transaction Notifications",
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: COLORS.blue,
+      sound: "default",
+    });
+  }
+
   if (!Device.isDevice) {
-    console.log('[PushNotifications] Simulator detected - push notifications require physical device. Local notifications will still work.');
-    // Continue to set up channels and permissions for local notification testing
+    console.log(
+      "[PushNotifications] Simulator detected. Remote push requires a real device. Local notifications can still work."
+    );
   }
 
-  // Check/request permissions
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  let finalStatus = existingStatus;
+  // Permissions
+  const perm = await Notifications.getPermissionsAsync();
+  let finalStatus = perm.status;
 
-  if (existingStatus !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
+  if (finalStatus !== "granted") {
+    const req = await Notifications.requestPermissionsAsync();
+    finalStatus = req.status;
   }
 
-  if (finalStatus !== 'granted') {
-    console.log('[PushNotifications] Permission not granted');
+  console.log("[PushNotifications] Permission status:", finalStatus);
+
+  if (finalStatus !== "granted") {
+    return null;
+  }
+
+  // Remote push token (real device only)
+  if (!Device.isDevice) {
     return null;
   }
 
   try {
-    // Get the Expo push token (only works on physical devices)
-    if (Device.isDevice) {
-      const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
-      
-      const pushToken = await Notifications.getExpoPushTokenAsync({
-        projectId,
-      });
-      
-      token = pushToken.data;
-      console.log('[PushNotifications] Token:', token);
+    const projectId = getExpoProjectId();
+    console.log("[PushNotifications] projectId:", projectId);
 
-      // Store locally
-      await AsyncStorage.setItem(PUSH_TOKEN_KEY, token);
-    } else {
-      console.log('[PushNotifications] Skipping token fetch on simulator');
-    }
+    // If projectId is missing, Expo may still return a token in Expo Go,
+    // but in dev/production it can fail. We log so you can confirm.
+    const pushToken = await Notifications.getExpoPushTokenAsync(
+      projectId ? { projectId } : undefined
+    );
+
+    const token = pushToken.data;
+    console.log("[PushNotifications] Expo push token:", token);
+
+    await AsyncStorage.setItem(PUSH_TOKEN_KEY, token);
+    return token;
   } catch (error) {
-    console.error('[PushNotifications] Failed to get push token:', error);
+    console.error("[PushNotifications] Failed to get Expo push token:", error);
+    return null;
   }
-
-  // Android-specific channel configuration
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('settlements', {
-      name: 'Settlement Notifications',
-      importance: Notifications.AndroidImportance.HIGH,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: COLORS.green,
-      sound: 'default',
-    });
-
-    await Notifications.setNotificationChannelAsync('transactions', {
-      name: 'Transaction Notifications',
-      importance: Notifications.AndroidImportance.HIGH,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: COLORS.blue,
-      sound: 'default',
-    });
-  }
-
-  return token;
 }
 
 /**
- * Send the push token to the backend for the current user
+ * Send the token to backend
  */
 export async function registerPushTokenWithBackend(phone: string): Promise<boolean> {
   try {
     const token = await AsyncStorage.getItem(PUSH_TOKEN_KEY);
+
     if (!token) {
-      console.log('[PushNotifications] No token to register');
+      console.log("[PushNotifications] No stored token found. Did you call registerForPushNotificationsAsync() on a real device?");
       return false;
     }
 
-    const response = await fetch(`${API_BASE_URL}/users/push-token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const res = await fetch(`${API_BASE_URL}/users/push-token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         phone,
         push_token: token,
@@ -115,48 +130,43 @@ export async function registerPushTokenWithBackend(phone: string): Promise<boole
       }),
     });
 
-    const data = await response.json();
-    console.log('[PushNotifications] Token registered with backend:', data.success);
-    return data.success;
+    const data = await res.json().catch(() => ({}));
+    console.log("[PushNotifications] Backend register result:", data);
+
+    return !!data?.success;
   } catch (error) {
-    console.error('[PushNotifications] Failed to register token with backend:', error);
+    console.error("[PushNotifications] Failed to register token with backend:", error);
     return false;
   }
 }
 
-/**
- * Get the stored push token
- */
 export async function getStoredPushToken(): Promise<string | null> {
   return AsyncStorage.getItem(PUSH_TOKEN_KEY);
 }
 
 /**
- * Schedule a local notification (for testing or immediate alerts)
+ * Local notification (works for simulator testing too)
  */
 export async function scheduleLocalNotification(
   title: string,
   body: string,
   data?: Record<string, any>,
-  channelId: string = 'settlements'
+  channelId: string = "settlements"
 ): Promise<string> {
   const id = await Notifications.scheduleNotificationAsync({
     content: {
       title,
       body,
       data,
-      sound: 'default',
-      ...(Platform.OS === 'android' && { channelId }),
+      sound: "default",
+      ...(Platform.OS === "android" && { channelId }),
     },
-    trigger: null, // Immediate
+    trigger: null,
   });
-  
+
   return id;
 }
 
-/**
- * Show a settlement complete notification
- */
 export async function showSettlementNotification(
   sellCurrency: string,
   buyCurrency: string,
@@ -164,68 +174,40 @@ export async function showSettlementNotification(
   buyAmount: number,
   conversionId?: string
 ): Promise<void> {
-  const formatAmount = (amount: number) =>
-    amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt = (n: number) =>
+    n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   await scheduleLocalNotification(
-    '✅ Conversion Complete',
-    `Your ${formatAmount(sellAmount)} ${sellCurrency} → ${formatAmount(buyAmount)} ${buyCurrency} conversion has settled.`,
+    "✅ Conversion Complete",
+    `Your ${fmt(sellAmount)} ${sellCurrency} → ${fmt(buyAmount)} ${buyCurrency} conversion has settled.`,
     {
-      type: 'settlement_complete',
+      type: "settlement_complete",
       conversionId,
       sellCurrency,
       buyCurrency,
       sellAmount,
       buyAmount,
     },
-    'settlements'
+    "settlements"
   );
 }
 
-/**
- * Add notification response listener (for handling taps on notifications)
- */
 export function addNotificationResponseListener(
   callback: (response: Notifications.NotificationResponse) => void
 ): Notifications.Subscription {
   return Notifications.addNotificationResponseReceivedListener(callback);
 }
 
-/**
- * Add notification received listener (for foreground notifications)
- */
 export function addNotificationReceivedListener(
   callback: (notification: Notifications.Notification) => void
 ): Notifications.Subscription {
   return Notifications.addNotificationReceivedListener(callback);
 }
 
-/**
- * Remove a subscription
- */
 export function removeNotificationSubscription(subscription: Notifications.Subscription): void {
-  // The expo-notifications API returns a Subscription object that exposes a remove() method.
-  // Calling subscription.remove() is the supported way to unsubscribe.
   subscription.remove();
 }
 
-/**
- * Get the badge count
- */
-export async function getBadgeCount(): Promise<number> {
-  return Notifications.getBadgeCountAsync();
-}
-
-/**
- * Set the badge count
- */
-export async function setBadgeCount(count: number): Promise<void> {
-  await Notifications.setBadgeCountAsync(count);
-}
-
-/**
- * Clear all notifications
- */
 export async function clearAllNotifications(): Promise<void> {
   await Notifications.dismissAllNotificationsAsync();
 }
@@ -239,7 +221,5 @@ export default {
   addNotificationResponseListener,
   addNotificationReceivedListener,
   removeNotificationSubscription,
-  getBadgeCount,
-  setBadgeCount,
   clearAllNotifications,
 };
