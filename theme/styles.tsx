@@ -1694,10 +1694,15 @@ checkEmailHint: {
 
 /* -------- Verify Email Card (small card UI) -------- */
 verifyCard: {
-  backgroundColor: "#F4F6F7",
+  backgroundColor: "#ffffffff",
   borderRadius: 18,
+  width: "96%",
+  margin: 9,
+  borderWidth: 1,
+  borderColor: "rgba(0, 0, 0, 0.17)",
   padding: 16,
   flexDirection: "row",
+  marginTop: 22,
   alignItems: "center",
   justifyContent: "space-between",
 },
@@ -1737,15 +1742,17 @@ verifyProgressTrack: {
 },
 
 verifyProgressFill: {
-  width: "18%", // ~1/5
+  width: "100%", // ~1/5
   height: "100%",
-  backgroundColor: "#2D9D62",
+  backgroundColor: "#6a55edff",
+  // backgroundColor: "#2D9D62",
   borderRadius: 999,
 },
 verifyProgressHalf: {
   width: "50%", // ~1/2
   height: "100%",
-  backgroundColor: "#2D9D62",
+  backgroundColor: "#6a55edff",
+  // backgroundColor: "#2D9D62",
   borderRadius: 999,
 },
 verifyProgressEmpty: {
@@ -3023,6 +3030,7 @@ headerRow: {
     paddingTop: 10,
     flexDirection: "row",
     alignItems: "center",
+    marginBottom: 15,
   },
   backBtn: {
     paddingVertical: 8,

@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useAutoPolling } from "../../../hooks/useAutoPolling";
 import {
   View,
   Text,
@@ -23,36 +24,7 @@ import {
   getConversionQuote,
   executeConversion,
 } from "../../../api/config";
-import { addPendingSettlement, usePendingSettlements } from "../../UsePendingSettlements";
-
-
-async function applyOptimisticCacheUpdate(params: {
-  sellCurrency: string;
-  buyCurrency: string;
-  sellAmount: number;
-  buyAmount: number;
-}) {
-  const raw = await AsyncStorage.getItem("cached_accounts_v1");
-  const list = raw ? JSON.parse(raw) : [];
-  if (!Array.isArray(list)) return;
-
-  const sell = params.sellCurrency.toUpperCase().trim();
-  const buy = params.buyCurrency.toUpperCase().trim();
-
-  const updated = list.map((a: any) => {
-    const ccy = String(a.currencyCode || "").toUpperCase().trim();
-    const bal = typeof a.balance === "number" ? a.balance : null;
-
-    if (bal === null) return a;
-
-    if (ccy === sell) return { ...a, balance: bal - params.sellAmount };
-    if (ccy === buy) return { ...a, balance: bal + params.buyAmount };
-    return a;
-  });
-
-  await AsyncStorage.setItem("cached_accounts_v1", JSON.stringify(updated));
-}
-
+import { addPendingSettlement, usePendingSettlements } from "../../../hooks/usePendingSettlements";
 
 // Quick amount button component
 const QuickAmountButton = ({
@@ -97,9 +69,34 @@ export default function ConvertScreen() {
   const [converting, setConverting] = useState(false);
   const [balanceExceeded, setBalanceExceeded] = useState(false);
 
+  // Prevent wallet refreshes (polling / focus reload) from resetting user selections.
+  // We keep the selected currency codes stable and re-bind them to the newest wallet objects.
+  const selectedFromCodeRef = useRef<string | null>(null);
+  const selectedToCodeRef = useRef<string | null>(null);
+
   // Modal states
   const [showFromPicker, setShowFromPicker] = useState(false);
   const [showToPicker, setShowToPicker] = useState(false);
+
+  const handleSelectFrom = useCallback((w: Wallet) => {
+    selectedFromCodeRef.current = w.currencyCode;
+    setFromWallet(w);
+    // If user picks the same currency as "to", auto-swap to keep the pair valid.
+    if (toWallet && toWallet.currencyCode === w.currencyCode) {
+      selectedToCodeRef.current = fromWallet?.currencyCode ?? null;
+      setToWallet(fromWallet);
+    }
+  }, [fromWallet, toWallet]);
+
+  const handleSelectTo = useCallback((w: Wallet) => {
+    selectedToCodeRef.current = w.currencyCode;
+    setToWallet(w);
+    // If user picks the same currency as "from", auto-swap to keep the pair valid.
+    if (fromWallet && fromWallet.currencyCode === w.currencyCode) {
+      selectedFromCodeRef.current = toWallet?.currencyCode ?? null;
+      setFromWallet(toWallet);
+    }
+  }, [fromWallet, toWallet]);
 
   // Pending settlements for optimistic balance display
   const {
@@ -110,12 +107,31 @@ export default function ConvertScreen() {
   // Get optimistic balances for display (accounting for pending settlements)
   const getDisplayBalance = useCallback((wallet: Wallet | null) => {
     if (!wallet) return 0;
-        return getOptimisticBalance(wallet.balance, wallet.currencyCode);
+    return getOptimisticBalance(wallet.balance, wallet.currencyCode);
   }, [getOptimisticBalance]);
 
   const fromDisplayBalance = getDisplayBalance(fromWallet);
   const toDisplayBalance = getDisplayBalance(toWallet);
-  const fromHasPending = fromWallet ? hasPendingForCurrency(fromWallet.currencyCode) : false;
+
+  // Whether the "from" wallet has any pending settlements that should block conversions
+  const fromHasPending = hasPendingForCurrency(fromWallet?.currencyCode ?? "");
+  const handleAmountChange = (text: string) => {
+    // Remove anything that's not a digit or dot
+    let cleaned = text.replace(/[^0-9.]/g, "");
+
+    // Prevent more than one decimal point
+    const parts = cleaned.split(".");
+    if (parts.length > 2) {
+      cleaned = parts[0] + "." + parts.slice(1).join("");
+    }
+
+    // Limit to 2 decimal places
+    if (parts[1]?.length > 2) {
+      cleaned = parts[0] + "." + parts[1].slice(0, 2);
+    }
+
+    setFromAmount(cleaned);
+  };
 
   // Load user phone from AsyncStorage
   useEffect(() => {
@@ -128,12 +144,17 @@ export default function ConvertScreen() {
     });
   }, []);
 
-  // Load wallets when phone is available
-  useEffect(() => {
-    if (userPhone) {
-      loadWallets();
-    }
-  }, [userPhone]);
+  // Auto-polling for wallet balance updates.
+  // Keep this gentle to avoid rate-limits (quotes are the most rate-limited).
+  useAutoPolling(
+    useCallback(() => {
+      if (userPhone) {
+        console.log('[ConvertScreen] Auto-polling - fetching wallets');
+        loadWallets();
+      }
+    }, [userPhone]),
+    { intervalMs: 60000, enabled: !!userPhone, fetchOnMount: true }
+  );
 
   // Check balance exceeded (use optimistic display balance)
   useEffect(() => {
@@ -147,44 +168,81 @@ export default function ConvertScreen() {
 
   const loadWallets = async () => {
     try {
+      // ✅ Load cached balances first (same cache used by HomeScreen/WalletScreen)
+      const cachedRaw = await AsyncStorage.getItem("cached_accounts_v1");
+      const cachedAccounts: { currencyCode: string; balance: number }[] = cachedRaw
+        ? JSON.parse(cachedRaw)
+        : [];
+      const cachedBalanceMap: Record<string, number> = {};
+      cachedAccounts.forEach((a) => {
+        if (typeof a.balance === "number") {
+          cachedBalanceMap[a.currencyCode?.toUpperCase()] = a.balance;
+        }
+      });
+
       const response = await getUserWallets(userPhone);
       if (response.success) {
-        const activeWallets = response.wallets.filter(
+        // ✅ Merge API wallets with cached balances (prefer cached if available)
+        const mergedWallets = response.wallets.map((w: Wallet) => {
+          const ccy = w.currencyCode?.toUpperCase();
+          const cachedBal = cachedBalanceMap[ccy];
+          // Use cached balance if API balance is null/undefined or if cached is more recent
+          if (cachedBal !== undefined && (w.balance === null || w.balance === undefined)) {
+            return { ...w, balance: cachedBal };
+          }
+          // Also prefer cached if it's a valid number and API returned null
+          if (typeof cachedBal === "number" && typeof w.balance !== "number") {
+            return { ...w, balance: cachedBal };
+          }
+          return w;
+        });
+
+        const activeWallets = mergedWallets.filter(
           (w: Wallet) => w.status === "active"
         );
-        setWallets(response.wallets);
+        setWallets(mergedWallets);
 
-        // Pre-select wallets based on URL params
-        let selectedFrom: Wallet | null = null;
-        let selectedTo: Wallet | null = null;
+        // Keep the user's selected currencies stable across refreshes.
+        // Priority for desired codes:
+        // 1) User's last selection (refs)
+        // 2) Current state (fromWallet/toWallet)
+        // 3) URL params (?from= & ?to=)
+        // 4) Sensible defaults (first active + first different)
+        const desiredFromCode = (
+          selectedFromCodeRef.current ||
+          fromWallet?.currencyCode ||
+          initialFromCurrency ||
+          activeWallets[0]?.currencyCode ||
+          null
+        )?.toUpperCase?.() ?? null;
 
-        if (initialFromCurrency) {
-          selectedFrom = activeWallets.find(
-            (w: Wallet) => w.currencyCode.toUpperCase() === initialFromCurrency.toUpperCase()
-          ) || null;
+        const desiredToCode = (
+          selectedToCodeRef.current ||
+          toWallet?.currencyCode ||
+          initialToCurrency ||
+          null
+        )?.toUpperCase?.() ?? null;
+
+        // Bind desired codes to actual wallet objects from the latest response.
+        const nextFrom = desiredFromCode
+          ? activeWallets.find((w) => w.currencyCode?.toUpperCase() === desiredFromCode) || null
+          : (activeWallets[0] || null);
+
+        // For "to", prefer desiredToCode if it exists and isn't same as from.
+        let nextTo: Wallet | null = null;
+        if (desiredToCode && desiredToCode !== nextFrom?.currencyCode?.toUpperCase()) {
+          nextTo = activeWallets.find((w) => w.currencyCode?.toUpperCase() === desiredToCode) || null;
+        }
+        if (!nextTo) {
+          nextTo = activeWallets.find((w) => w.currencyCode !== nextFrom?.currencyCode) || null;
         }
 
-        if (initialToCurrency) {
-          selectedTo = activeWallets.find(
-            (w: Wallet) => w.currencyCode.toUpperCase() === initialToCurrency.toUpperCase()
-          ) || null;
-        }
+        // Persist choices for future refreshes.
+        if (nextFrom?.currencyCode) selectedFromCodeRef.current = nextFrom.currencyCode;
+        if (nextTo?.currencyCode) selectedToCodeRef.current = nextTo.currencyCode;
 
-        // Set from wallet
-        if (selectedFrom) {
-          setFromWallet(selectedFrom);
-        } else if (activeWallets.length >= 1) {
-          setFromWallet(activeWallets[0]);
-        }
-
-        // Set to wallet
-        if (selectedTo && selectedTo.currencyCode !== selectedFrom?.currencyCode) {
-          setToWallet(selectedTo);
-        } else if (activeWallets.length >= 2) {
-          const fromCode = selectedFrom?.currencyCode || activeWallets[0]?.currencyCode;
-          const otherWallet = activeWallets.find((w: Wallet) => w.currencyCode !== fromCode);
-          if (otherWallet) setToWallet(otherWallet);
-        }
+        setFromWallet(nextFrom);
+        setToWallet(nextTo);
       } else {
         Alert.alert("Error", response.message || "Failed to load wallets");
       }
@@ -260,15 +318,6 @@ export default function ConvertScreen() {
       return;
     }
 
-    // Block if source wallet has pending settlement
-    if (fromHasPending) {
-      Alert.alert(
-        "Settlement in Progress",
-        `Your ${fromWallet.currencyCode} wallet has a pending conversion that is still settling. Please wait for settlement to complete before converting.`,
-        [{ text: "OK" }]
-      );
-      return;
-    }
 
     if (amount > fromDisplayBalance) {
       router.push({
@@ -298,125 +347,106 @@ export default function ConvertScreen() {
   };
 
   const executeConversionRequest = async () => {
-  if (!fromWallet || !toWallet || !fromAmount) return;
+    if (!fromWallet || !toWallet || !fromAmount) return;
 
-  const sellBalanceBefore = fromDisplayBalance; // ✅ capture before
-  const buyBalanceBefore = toDisplayBalance;   // ✅ capture before
+    setConverting(true);
+    try {
+      console.log("[ConvertScreen] Executing conversion:", {
+        phone: userPhone,
+        from: fromWallet.currencyCode,
+        to: toWallet.currencyCode,
+        amount: parseFloat(fromAmount),
+      });
 
-  setConverting(true);
-  try {
-    const sellAmountInput = parseFloat(fromAmount);
+      const response = await executeConversion(
+        userPhone,
+        fromWallet.currencyCode,
+        toWallet.currencyCode,
+        parseFloat(fromAmount)
+      );
 
-    const response = await executeConversion(
-      userPhone,
-      fromWallet.currencyCode,
-      toWallet.currencyCode,
-      sellAmountInput
-    );
+      console.log("[ConvertScreen] Conversion response:", response);
 
-    if (response.success) {
-      const conversionData = response.conversion;
+      if (response.success) {
+        const conversionData = response.conversion;
+        const sellAmount = conversionData?.sellAmount || parseFloat(fromAmount);
+        const buyAmount = conversionData?.buyAmount || parseFloat(toAmount);
+        const sellCurrency = conversionData?.sellCurrency || fromWallet.currencyCode;
+        const buyCurrency = conversionData?.buyCurrency || toWallet.currencyCode;
 
-      const sellAmount = Number(conversionData?.sellAmount ?? sellAmountInput);
-      const buyAmount = Number(conversionData?.buyAmount ?? parseFloat(toAmount) ?? 0);
+        // If balance update is pending (CurrencyCloud hasn't settled yet),
+        // add to pending settlements for optimistic UI updates.
+        // NOTE: for "exotic" (local-ledger) currencies, balances update immediately,
+        // so we only track pending deltas for non-exotic sides to avoid double-counting.
+        if (response.balanceUpdatePending) {
+          const KNOWN_EXOTIC_CURRENCIES = ['NGN', 'GHS', 'RWF', 'UGX', 'TZS', 'ZMW', 'XOF', 'XAF'];
+          const norm = (c: string) => String(c || '').toUpperCase().trim();
+          const isExotic = (c: string) => KNOWN_EXOTIC_CURRENCIES.includes(norm(c));
 
-      const sellCurrency = String(conversionData?.sellCurrency ?? fromWallet.currencyCode).toUpperCase();
-      const buyCurrency = String(conversionData?.buyCurrency ?? toWallet.currencyCode).toUpperCase();
+          const pendingSellAmount = isExotic(sellCurrency) ? 0 : sellAmount;
+          const pendingBuyAmount = isExotic(buyCurrency) ? 0 : buyAmount;
 
-      const conversionId = conversionData?.id || response.conversionId || response.id;
-
-      // ✅ Always add pending if settlement is not instant
-      if (response.balanceUpdatePending) {
-        await addPendingSettlement({
-          sellCurrency,
-          buyCurrency,
-          sellAmount,
-          buyAmount,
-          conversionId,
-          sellBalanceBefore,
-          buyBalanceBefore,
-        } as any);
+          if (pendingSellAmount !== 0 || pendingBuyAmount !== 0) {
+            console.log('[ConvertScreen] Balance pending settlement, adding optimistic update');
+            await addPendingSettlement({
+              sellCurrency: norm(sellCurrency),
+              buyCurrency: norm(buyCurrency),
+              sellAmount: pendingSellAmount,
+              buyAmount: pendingBuyAmount,
+              conversionId: conversionData?.id,
+              sellBalanceBefore: fromWallet.balance,
+              buyBalanceBefore: toWallet.balance,
+            });
+          }
+        }
+        
+        
+        router.push({
+          pathname: "/result",
+          params: {
+            type: "success",
+            title: "Conversion Complete",
+            message: `You converted ${sellAmount.toFixed(2)} ${sellCurrency} to ${buyAmount.toFixed(2)} ${buyCurrency}`,
+            subtitle: `Rate: 1 ${sellCurrency} = ${conversionData?.rate?.toFixed(4) || rate?.toFixed(4)} ${buyCurrency}`,
+            primaryText: "Done",
+            primaryRoute: "/(tabs)",
+            secondaryText: "View wallet",
+            secondaryRoute: "/(tabs)/wallet",
+          },
+        });
+      } else {
+        // Navigate to error result screen
+        router.push({
+          pathname: "/result",
+          params: {
+            type: "error",
+            title: "Conversion Failed",
+            message: response.message || "Something went wrong with the conversion.",
+            primaryText: "Try again",
+            primaryRoute: "back",
+            secondaryText: "Contact support",
+            secondaryRoute: "/help",
+          },
+        });
       }
-
-      // ✅ Update persistent cache immediately (Home & Wallet will reflect instantly)
-      await applyOptimisticCacheUpdate({
-        sellCurrency,
-        buyCurrency,
-        sellAmount,
-        buyAmount,
-      });
-
-      // ✅ Update current screen wallets immediately too
-      setWallets((prev) =>
-        prev.map((w) => {
-          const ccy = w.currencyCode.toUpperCase();
-          if (ccy === sellCurrency) {
-            return { ...w, balance: (typeof w.balance === "number" ? w.balance : 0) - sellAmount };
-          }
-          if (ccy === buyCurrency) {
-            return { ...w, balance: (typeof w.balance === "number" ? w.balance : 0) + buyAmount };
-          }
-          return w;
-        })
-      );
-
-      // also update the selected wallets objects
-      setFromWallet((prev) =>
-        prev ? { ...prev, balance: (typeof prev.balance === "number" ? prev.balance : 0) - sellAmount } : prev
-      );
-      setToWallet((prev) =>
-        prev ? { ...prev, balance: (typeof prev.balance === "number" ? prev.balance : 0) + buyAmount } : prev
-      );
-
-      const pendingNote = response.balanceUpdatePending
-        ? "\n\nBalance will update shortly once settlement completes."
-        : "";
-
-      router.push({
-        pathname: "/result",
-        params: {
-          type: "success",
-          title: response.balanceUpdatePending ? "Conversion Processing" : "Conversion Complete",
-          message: `You converted ${sellAmount.toFixed(2)} ${sellCurrency} to ${buyAmount.toFixed(2)} ${buyCurrency}${pendingNote}`,
-          subtitle: `Rate: 1 ${sellCurrency} = ${(conversionData?.rate ?? rate ?? 0).toFixed(4)} ${buyCurrency}`,
-          primaryText: "Done",
-          primaryRoute: "/(tabs)",
-          secondaryText: "View wallet",
-          secondaryRoute: "/wallet",
-        },
-      });
-    } else {
+    } catch (error) {
+      console.error("[ConvertScreen] Conversion error:", error);
       router.push({
         pathname: "/result",
         params: {
           type: "error",
           title: "Conversion Failed",
-          message: response.message || "Something went wrong with the conversion.",
+          message: "Network error. Please check your connection and try again.",
           primaryText: "Try again",
           primaryRoute: "back",
           secondaryText: "Contact support",
           secondaryRoute: "/help",
         },
       });
+    } finally {
+      setConverting(false);
     }
-  } catch (error) {
-    router.push({
-      pathname: "/result",
-      params: {
-        type: "error",
-        title: "Conversion Failed",
-        message: "Network error. Please check your connection and try again.",
-        primaryText: "Try again",
-        primaryRoute: "back",
-        secondaryText: "Contact support",
-        secondaryRoute: "/help",
-      },
-    });
-  } finally {
-    setConverting(false);
-  }
-};
-
+  };
 
   const swapCurrencies = () => {
     const temp = fromWallet;
@@ -560,6 +590,7 @@ export default function ConvertScreen() {
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={{ flex: 1 }}
         >
+
           <View style={styles.headerRow}>
             <Pressable onPress={() => router.back()} style={styles.backBtn}>
               <Text style={styles.backIcon}>←</Text>
@@ -569,6 +600,7 @@ export default function ConvertScreen() {
               <Text style={styles.subtitle}>Convert money from one currency to another</Text>
             </View>
           </View>
+
           {/* FROM Section */}
           <View style={styles.convertBox}>
             <Text style={{ color: "#2E9E6A", fontWeight: "900" }}>
@@ -577,7 +609,7 @@ export default function ConvertScreen() {
             <View style={styles.convertRow}>
               <TextInput
                 value={fromAmount}
-                onChangeText={setFromAmount}
+                onChangeText={handleAmountChange}
                 placeholder="0.00"
                 keyboardType="decimal-pad"
                 placeholderTextColor="#BDBDBD"
@@ -708,7 +740,10 @@ export default function ConvertScreen() {
               (w) => w.currencyCode !== toWallet?.currencyCode
             )}
             selected={fromWallet}
-            onSelect={setFromWallet}
+            onSelect={(w) => {
+              handleSelectFrom(w);
+              setShowFromPicker(false);
+            }}
             title="Convert From"
           />
 
@@ -719,7 +754,10 @@ export default function ConvertScreen() {
               (w) => w.currencyCode !== fromWallet?.currencyCode
             )}
             selected={toWallet}
-            onSelect={setToWallet}
+            onSelect={(w) => {
+              handleSelectTo(w);
+              setShowToPicker(false);
+            }}
             title="Convert To"
           />
         </KeyboardAvoidingView>

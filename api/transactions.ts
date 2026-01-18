@@ -1,13 +1,13 @@
-import { Platform } from 'react-native';
+import { Platform } from "react-native";
+import { strictAPICall, TransactionError } from "../utils/networkGuard";
 
 /**
  * Transactions API - Fetch wallet transactions for mobile app
  */
-
 const API_BASE_URL =
-  Platform.OS === 'android'
-    ? process.env.EXPO_PUBLIC_API_BASE_URL_ANDROID || 'http://10.0.2.2:5000/api'
-    : process.env.EXPO_PUBLIC_API_BASE_URL_IOS || 'http://127.0.0.1:5000/api';
+  Platform.OS === "android"
+    ? process.env.EXPO_PUBLIC_API_BASE_URL_ANDROID || "http://10.0.2.2:5000/api"
+    : process.env.EXPO_PUBLIC_API_BASE_URL_IOS || "http://127.0.0.1:5000/api";
 
 export interface WalletTransaction {
   id: number;
@@ -44,10 +44,17 @@ export interface TransactionsResponse {
   hasNext: boolean;
   hasPrev: boolean;
   message?: string;
+
+  // ✅ added for UI network messaging
+  code?: string;
+  isNetworkError?: boolean;
+  isTimeoutError?: boolean;
 }
 
 /**
  * Get all transactions for a user by phone number
+ * ✅ never throws to UI
+ * ✅ never calls response.json() (prevents JSON parse crashes)
  */
 export async function getUserTransactions(
   phone: string,
@@ -55,30 +62,46 @@ export async function getUserTransactions(
   limit = 50,
   currency?: string
 ): Promise<TransactionsResponse> {
-  try {
-    const encodedPhone = encodeURIComponent(phone);
-    let url = `${API_BASE_URL}/wallet-transactions/by-phone?phone=${encodedPhone}&page=${page}&limit=${limit}`;
-    
-    if (currency) {
-      url += `&currency=${currency.toUpperCase()}`;
-    }
+  const encodedPhone = encodeURIComponent(phone);
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
+  let url = `${API_BASE_URL}/wallet-transactions/by-phone?phone=${encodedPhone}&page=${page}&limit=${limit}`;
+  if (currency) url += `&currency=${currency.toUpperCase()}`;
+
+  try {
+    const data = await strictAPICall<any>(url, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      timeoutMs: 10000,
+      context: "Fetch transactions",
+      validateSuccess: false, // some endpoints may not include success
     });
 
-    const data = await response.json();
+    const rawTxs = Array.isArray(data?.transactions) ? data.transactions : [];
+    const normalized = rawTxs.map(normalizeTransaction);
 
-    if (data.success && Array.isArray(data.transactions)) {
+    return {
+      success: true,
+      transactions: normalized,
+      total: data?.total || normalized.length,
+      page: data?.page || page,
+      pages: data?.pages || 1,
+      hasNext: data?.hasNext || false,
+      hasPrev: data?.hasPrev || false,
+    };
+  } catch (err: any) {
+    if (err instanceof TransactionError) {
       return {
-        success: true,
-        transactions: data.transactions.map(normalizeTransaction),
-        total: data.total || data.transactions.length,
-        page: data.page || page,
-        pages: data.pages || 1,
-        hasNext: data.hasNext || false,
-        hasPrev: data.hasPrev || false,
+        success: false,
+        transactions: [],
+        total: 0,
+        page: page,
+        pages: 0,
+        hasNext: false,
+        hasPrev: false,
+        message: err.message,
+        code: err.code,
+        isNetworkError: err.isNetworkError,
+        isTimeoutError: err.isTimeoutError,
       };
     }
 
@@ -86,58 +109,62 @@ export async function getUserTransactions(
       success: false,
       transactions: [],
       total: 0,
-      page: 1,
+      page: page,
       pages: 0,
       hasNext: false,
       hasPrev: false,
-      message: data.message || 'Failed to fetch transactions',
-    };
-  } catch (error) {
-    console.error('Failed to fetch user transactions:', error);
-    return {
-      success: false,
-      transactions: [],
-      total: 0,
-      page: 1,
-      pages: 0,
-      hasNext: false,
-      hasPrev: false,
-      message: 'Failed to fetch transactions',
+      message: "Failed to fetch transactions",
+      code: "UNKNOWN_ERROR",
     };
   }
 }
 
 /**
  * Get a single transaction by reference
+ * ✅ safe JSON parsing via strictAPICall
  */
 export async function getTransactionByReference(
   reference: string
-): Promise<{ success: boolean; transaction?: WalletTransaction; message?: string }> {
+): Promise<{
+  success: boolean;
+  transaction?: WalletTransaction;
+  message?: string;
+  code?: string;
+  isNetworkError?: boolean;
+  isTimeoutError?: boolean;
+}> {
+  const url = `${API_BASE_URL}/wallet-transactions/${encodeURIComponent(reference)}`;
+
   try {
-    const response = await fetch(`${API_BASE_URL}/wallet-transactions/${encodeURIComponent(reference)}`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
+    const data = await strictAPICall<any>(url, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      timeoutMs: 10000,
+      context: "Fetch transaction detail",
+      validateSuccess: false,
     });
 
-    const data = await response.json();
-
-    if (data.success && data.transaction) {
-      return {
-        success: true,
-        transaction: normalizeTransaction(data.transaction),
-      };
+    if (data?.success && data?.transaction) {
+      return { success: true, transaction: normalizeTransaction(data.transaction) };
     }
 
-    return {
-      success: false,
-      message: data.message || 'Transaction not found',
-    };
-  } catch (error) {
-    console.error('Failed to fetch transaction:', error);
-    return {
-      success: false,
-      message: 'Failed to fetch transaction',
-    };
+    // if backend doesn’t use {success:true}, still try best-effort:
+    if (data?.transaction) {
+      return { success: true, transaction: normalizeTransaction(data.transaction) };
+    }
+
+    return { success: false, message: data?.message || "Transaction not found" };
+  } catch (err: any) {
+    if (err instanceof TransactionError) {
+      return {
+        success: false,
+        message: err.message,
+        code: err.code,
+        isNetworkError: err.isNetworkError,
+        isTimeoutError: err.isTimeoutError,
+      };
+    }
+    return { success: false, message: "Failed to fetch transaction", code: "UNKNOWN_ERROR" };
   }
 }
 
@@ -154,9 +181,13 @@ function normalizeTransaction(tx: any): WalletTransaction {
     amount: parseFloat(tx.amount) || 0,
     fromCurrency: tx.from_currency || tx.fromCurrency,
     toCurrency: tx.to_currency || tx.toCurrency,
-    fromAmount: tx.from_amount || tx.fromAmount ? parseFloat(tx.from_amount || tx.fromAmount) : undefined,
+    fromAmount:
+      tx.from_amount || tx.fromAmount ? parseFloat(tx.from_amount || tx.fromAmount) : undefined,
     toAmount: tx.to_amount || tx.toAmount ? parseFloat(tx.to_amount || tx.toAmount) : undefined,
-    exchangeRate: tx.exchange_rate || tx.exchangeRate ? parseFloat(tx.exchange_rate || tx.exchangeRate) : undefined,
+    exchangeRate:
+      tx.exchange_rate || tx.exchangeRate
+        ? parseFloat(tx.exchange_rate || tx.exchangeRate)
+        : undefined,
     counterpartyName: tx.counterparty_name || tx.counterpartyName,
     counterpartyAccount: tx.counterparty_account || tx.counterpartyAccount,
     counterpartyBank: tx.counterparty_bank || tx.counterpartyBank,

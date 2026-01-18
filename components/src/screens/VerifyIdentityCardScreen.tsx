@@ -6,12 +6,19 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 interface Props {
   onPress: () => void;
-  email: string;
+  userPhone: string;
 }
 
-export default function VerifyIdentityCardScreen({ onPress, email }: Props) {
+export default function VerifyIdentityCardScreen({ onPress, userPhone }: Props) {
     const router = useRouter();
-    
+    const [emailVerified, setEmailVerified] = React.useState(false);
+    useEffect(()=>{
+      const checkEmailVerification = async () => {
+        const emailVerified = await AsyncStorage.getItem("email_verified");
+        setEmailVerified(emailVerified === "true");
+      };
+      checkEmailVerification();
+    }, []);
   return (
     <View style={styles.verifyCard}>
       <View style={styles.verifyCardLeft}>
@@ -19,12 +26,12 @@ export default function VerifyIdentityCardScreen({ onPress, email }: Props) {
 
         <Text style={styles.verifyBigTitle}>Verify Identity</Text>
 
-        {/* <View style={styles.verifyProgressRow}>
+        <View style={styles.verifyProgressRow}>
           <View style={styles.verifyProgressTrack}>
-            <View style={styles.verifyProgressFill} />
+            <View style={emailVerified ? styles.verifyProgressHalf : styles.verifyProgressEmpty} />
           </View>
-          <Text style={styles.verifyProgressText}>1 / 5 completed</Text>
-        </View> */}
+          <Text style={styles.verifyProgressText}>{emailVerified ? "1 / 2 completed" : "1 / 2 completed"}</Text>
+        </View>
 
         <Pressable style={styles.verifyCardBtn} onPress={onPress}>
           <Text style={styles.verifyCardBtnText}>Verify</Text>

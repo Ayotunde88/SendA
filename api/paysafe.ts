@@ -6,7 +6,7 @@ import {
   strictFetch,
   strictParseJSON,
   TRANSACTION_TIMEOUT_MS 
-} from './networkGuard';
+} from '../utils/networkGuard';
 
 // Platform-specific API URLs - matches config.ts pattern (includes /api suffix)
 const API_BASE_URL =

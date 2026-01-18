@@ -14,7 +14,10 @@ import { useRouter } from "expo-router";
 import ScreenShell from "../../ScreenShell";
 import { styles } from "../../../theme/styles";
 import { COLORS } from "../../../theme/colors";
-import { getCountries, getExchangeRates, getUserAccounts } from "@/api/config";
+import { getCountries, getExchangeRates, getUserAccounts, getPublicCurrencies } from "@/api/config";
+import CreateRateAlertSheet from "../../../components/CreateRateAlertSheet";
+
+const CACHED_FLAGS_KEY = "cached_flags_v1";
 
 type Country = {
   code: string;
@@ -69,6 +72,15 @@ export default function ExchangeRatesScreen() {
   const [rates, setRates] = useState<DisplayRate[]>([]);
   const [baseCurrency, setBaseCurrency] = useState<string>("");
 
+  // Rate alert state
+  const [alertSheetOpen, setAlertSheetOpen] = useState(false);
+  const [selectedRate, setSelectedRate] = useState<DisplayRate | null>(null);
+
+  const openAlertSheet = useCallback((rate: DisplayRate) => {
+    setSelectedRate(rate);
+    setAlertSheetOpen(true);
+  }, []);
+
   const getFlagForCurrency = useCallback(
     (currencyCode?: string) => {
       const key = (currencyCode || "").toUpperCase().trim();
@@ -103,34 +115,73 @@ export default function ExchangeRatesScreen() {
     [flagsByKey]
   );
 
+  // Load cached flags on mount
+  useEffect(() => {
+    const loadCachedFlags = async () => {
+      try {
+        const cached = await AsyncStorage.getItem(CACHED_FLAGS_KEY);
+        if (cached) {
+          setFlagsByKey(JSON.parse(cached));
+        }
+      } catch (e) {
+        console.log("Failed to load cached flags:", e);
+      }
+    };
+    loadCachedFlags();
+  }, []);
+
   const loadData = useCallback(async (isRefresh = false) => {
     try {
-      // Load flags
+      // Load flags using 3-tier strategy: currencies API → countries fallback → cache
       let currentFlagsByKey = flagsByKey;
       let currentDisabledCurrencies = disabledCurrencies;
 
       if (!isRefresh || Object.keys(flagsByKey).length === 0) {
         try {
-          const countries: Country[] = await getCountries();
+          // Parallel fetch - currencies (primary) and countries (fallback)
+          const [currenciesResult, countriesResult] = await Promise.allSettled([
+            getPublicCurrencies(true), // All currencies for complete flag mapping
+            getCountries(),
+          ]);
+
           const flagsMap: Record<string, string> = {};
           const disabledMap: Record<string, true> = {};
 
-          for (const c of countries || []) {
-            const flag = (c.flag || "").trim();
-            const cur = (c.currencyCode || "").toUpperCase().trim();
-            const code = (c.code || "").toUpperCase().trim();
-
-            if (cur && flag && !flagsMap[cur]) flagsMap[cur] = flag;
-            if (code && flag && !flagsMap[code]) flagsMap[code] = flag;
-
-            if (cur && c.currencyEnabled === false) disabledMap[cur] = true;
-            if (code && c.currencyEnabled === false) disabledMap[code] = true;
+          // First, populate from currencies endpoint (most accurate for currency codes)
+          if (currenciesResult.status === 'fulfilled') {
+            for (const c of currenciesResult.value || []) {
+              const flag = ((c as any).flag || "").trim();
+              const currencyKey = ((c as any).code || "").toUpperCase().trim();
+              if (currencyKey && flag) flagsMap[currencyKey] = flag;
+              if (currencyKey && !(c as any).enabled) disabledMap[currencyKey] = true;
+            }
           }
 
-          setFlagsByKey(flagsMap);
-          setDisabledCurrencies(disabledMap);
-          currentFlagsByKey = flagsMap;
-          currentDisabledCurrencies = disabledMap;
+          // Then, fill gaps from countries endpoint
+          if (countriesResult.status === 'fulfilled') {
+            const countriesData = countriesResult.value as Country[];
+            for (const c of countriesData || []) {
+              const flag = (c.flag || "").trim();
+              const cur = (c.currencyCode || "").toUpperCase().trim();
+              const code = (c.code || "").toUpperCase().trim();
+
+              // Only add if not already present from currencies
+              if (cur && flag && !flagsMap[cur]) flagsMap[cur] = flag;
+              if (code && flag && !flagsMap[code]) flagsMap[code] = flag;
+
+              if (cur && c.currencyEnabled === false && !disabledMap[cur]) disabledMap[cur] = true;
+              if (code && c.currencyEnabled === false && !disabledMap[code]) disabledMap[code] = true;
+            }
+          }
+
+          if (Object.keys(flagsMap).length > 0) {
+            setFlagsByKey(flagsMap);
+            setDisabledCurrencies(disabledMap);
+            currentFlagsByKey = flagsMap;
+            currentDisabledCurrencies = disabledMap;
+            // Cache flags for instant restore
+            AsyncStorage.setItem(CACHED_FLAGS_KEY, JSON.stringify(flagsMap)).catch(() => {});
+          }
         } catch (e) {
           console.log("Failed to load flags:", e);
         }
@@ -358,36 +409,57 @@ export default function ExchangeRatesScreen() {
               visibleRates.map((x, idx) => {
                 const isPositive = String(x.change || "").trim().startsWith("+");
                 return (
-                  <Pressable
+                  <View
                     key={`${x.from}-${x.to}-${idx}`}
                     style={[styles.fxRow, idx === visibleRates.length - 1 ? { paddingBottom: 14 } : null]}
-                    onPress={() => router.push(`/convert?from=${x.from}&to=${x.to}`)}
                   >
-                    <View style={styles.fxLeft}>
-                      <View style={styles.fxFlags}>
-                        <Text style={styles.fxFlag}>{x.fromFlag}</Text>
-                        <Text style={styles.fxFlag}>{x.toFlag}</Text>
+                    <Pressable
+                      style={{ flex: 1, flexDirection: "row", alignItems: "center" }}
+                      onPress={() => router.push(`/convert?from=${x.from}&to=${x.to}`)}
+                    >
+                      <View style={styles.fxLeft}>
+                        <View style={styles.fxFlags}>
+                          <Text style={styles.fxFlag}>{x.fromFlag}</Text>
+                          <Text style={styles.fxFlag}>{x.toFlag}</Text>
+                        </View>
+
+                        <View>
+                          <Text style={styles.fxPair}>
+                            {x.from} → {x.to}
+                          </Text>
+                          <Text style={styles.fxPairSub}>
+                            1 {x.from} = {x.rate} {x.to}
+                          </Text>
+                        </View>
                       </View>
 
-                      <View>
-                        <Text style={styles.fxPair}>
-                          {x.from} → {x.to}
-                        </Text>
-                        <Text style={styles.fxPairSub}>
-                          1 {x.from} = {x.rate} {x.to}
-                        </Text>
+                      <View style={styles.fxRight}>
+                        <View style={[styles.fxChangePill, isPositive ? styles.fxUp : styles.fxDown]}>
+                          <Text style={[styles.fxChangeText, isPositive ? styles.fxUpText : styles.fxDownText]}>
+                            {x.change || "+0.0%"}
+                          </Text>
+                        </View>
                       </View>
-                    </View>
+                    </Pressable>
 
-                    <View style={styles.fxRight}>
-                      <View style={[styles.fxChangePill, isPositive ? styles.fxUp : styles.fxDown]}>
-                        <Text style={[styles.fxChangeText, isPositive ? styles.fxUpText : styles.fxDownText]}>
-                          {x.change || "+0.0%"}
-                        </Text>
-                      </View>
-                      <Text style={styles.fxChevron}>›</Text>
-                    </View>
-                  </Pressable>
+                    {/* Alert Bell Button */}
+                    <Pressable
+                      onPress={() => openAlertSheet(x)}
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        backgroundColor: "rgba(25,149,95,0.1)",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        marginLeft: 8,
+                      }}
+                    >
+                      <Text style={{ fontSize: 16 }}>🔔</Text>
+                    </Pressable>
+
+                    <Text style={styles.fxChevron}>›</Text>
+                  </View>
                 );
               })
             )}
@@ -400,12 +472,51 @@ export default function ExchangeRatesScreen() {
           </View>
 
           {/* Quick action */}
-          <View style={{ paddingHorizontal: 16, marginTop: 14 }}>
+          <View style={{ paddingHorizontal: 16, marginTop: 14, gap: 10 }}>
             <Pressable onPress={() => router.push("/convert")} style={styles.primaryBtn}>
               <Text style={{ color: "#fff", fontWeight: "900", fontSize: 16 }}>Convert currency</Text>
             </Pressable>
+
+            <Pressable
+              onPress={() => router.push("/ratealerts")}
+              style={{
+                backgroundColor: "#fff",
+                paddingVertical: 14,
+                borderRadius: 12,
+                alignItems: "center",
+                borderWidth: 1.5,
+                borderColor: COLORS.primary,
+                flexDirection: "row",
+                justifyContent: "center",
+                gap: 8,
+              }}
+            >
+              <Text style={{ fontSize: 16 }}>🔔</Text>
+              <Text style={{ color: COLORS.primary, fontWeight: "900", fontSize: 16 }}>
+                Manage Rate Alerts
+              </Text>
+            </Pressable>
           </View>
         </ScrollView>
+
+        {/* Rate Alert Sheet */}
+        {selectedRate && (
+          <CreateRateAlertSheet
+            open={alertSheetOpen}
+            onClose={() => {
+              setAlertSheetOpen(false);
+              setSelectedRate(null);
+            }}
+            fromCurrency={selectedRate.from}
+            toCurrency={selectedRate.to}
+            currentRate={selectedRate.numericRate}
+            fromFlag={selectedRate.fromFlag}
+            toFlag={selectedRate.toFlag}
+            onSuccess={() => {
+              // Optionally refresh or show toast
+            }}
+          />
+        )}
       </ScreenShell>
     </SafeAreaView>
   );

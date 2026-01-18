@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "SendA",
-    "slug": "SendA",
+    "name": "Exxsend",
+    "slug": "Exxsend",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "senda",
+    "scheme": "exxsend",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {

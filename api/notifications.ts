@@ -1,103 +1,146 @@
-import { API_BASE_URL } from './config';
+import { Platform } from "react-native";
+import { strictAPICall, TransactionError } from "../utils/networkGuard";
+
+const API_BASE_URL =
+  Platform.OS === "android"
+    ? process.env.EXPO_PUBLIC_API_BASE_URL_ANDROID || "http://10.0.2.2:5000/api"
+    : process.env.EXPO_PUBLIC_API_BASE_URL_IOS || "http://127.0.0.1:5000/api";
 
 export interface Notification {
   id: string;
-  userId: string;
-  type: string;
-  category: 'success' | 'warning' | 'info' | 'error';
-  icon: string;
   title: string;
   body: string;
-  data?: Record<string, any>;
   read: boolean;
-  readAt: string | null;
   createdAt: string;
+  readAt?: string | null;
+  category?: "success" | "warning" | "info" | "error" | string;
+  icon?: string;
+  data?: any;
 }
 
-export interface NotificationsResponse {
+export type NotificationsResponse = {
   success: boolean;
   notifications: Notification[];
-  unreadCount: number;
-  total: number;
-  page: number;
-  pages: number;
   message?: string;
-}
+  code?: string;
+  isNetworkError?: boolean;
+  isTimeoutError?: boolean;
+};
 
-/**
- * Get notifications for a user
- */
-export async function getNotifications(
-  phone: string,
-  options?: { page?: number; perPage?: number; unreadOnly?: boolean }
-): Promise<NotificationsResponse> {
-  try {
-    const params = new URLSearchParams({
-      phone: phone,
-      page: String(options?.page || 1),
-      per_page: String(options?.perPage || 50),
-    });
-    
-    if (options?.unreadOnly) {
-      params.append('unread', 'true');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/notifications?${params}`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    return await response.json();
-  } catch (error) {
-    console.error('Failed to fetch notifications:', error);
+function mapErr(err: any, fallback: string): NotificationsResponse {
+  if (err instanceof TransactionError) {
     return {
       success: false,
       notifications: [],
-      unreadCount: 0,
-      total: 0,
-      page: 1,
-      pages: 0,
-      message: 'Failed to fetch notifications',
+      message: err.message,
+      code: err.code,
+      isNetworkError: err.isNetworkError,
+      isTimeoutError: err.isTimeoutError,
     };
+  }
+  return { success: false, notifications: [], message: fallback, code: "UNKNOWN_ERROR" };
+}
+
+function normalizeNotif(n: any): Notification {
+  return {
+    id: String(n.id ?? n._id ?? ""),
+    title: String(n.title ?? "Notification"),
+    body: String(n.body ?? n.message ?? ""),
+    read: Boolean(n.read ?? false),
+    createdAt: String(n.created_at ?? n.createdAt ?? new Date().toISOString()),
+    readAt: n.read_at ?? n.readAt ?? null,
+    category: n.category ?? n.type ?? "info",
+    icon: n.icon ?? "🔔",
+    data: n.data ?? {},
+  };
+}
+
+/**
+ * GET notifications for a user
+ */
+export async function getNotifications(
+  phone: string,
+  opts?: { page?: number; perPage?: number; unreadOnly?: boolean }
+): Promise<NotificationsResponse> {
+  try {
+    const page = opts?.page ?? 1;
+    const perPage = opts?.perPage ?? 50;
+    const unreadOnly = opts?.unreadOnly ?? false;
+
+    const url =
+      `${API_BASE_URL}/notifications?phone=${encodeURIComponent(phone)}` +
+      `&page=${page}&perPage=${perPage}` +
+      (unreadOnly ? `&unreadOnly=true` : "");
+
+    // ✅ strictAPICall prevents "Unexpected end of input" by:
+    // - checking network
+    // - handling timeouts
+    // - validating JSON safely
+    const data = await strictAPICall<any>(url, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      timeoutMs: 10000,
+      context: "Fetch notifications",
+      validateSuccess: false,
+    });
+
+    const listRaw = Array.isArray(data?.notifications)
+      ? data.notifications
+      : Array.isArray(data?.data)
+      ? data.data
+      : [];
+
+    return {
+      success: !!data?.success,
+      notifications: listRaw.map(normalizeNotif),
+      message: data?.message,
+    };
+  } catch (err) {
+    return mapErr(err, "Failed to fetch notifications. Please check your network and try again.");
   }
 }
 
 /**
- * Mark a single notification as read
+ * Mark one notification as read
  */
-export async function markNotificationRead(
-  notificationId: string
-): Promise<{ success: boolean; message?: string }> {
+export async function markNotificationRead(id: string): Promise<{ success: boolean; message?: string }> {
   try {
-    const response = await fetch(
-      `${API_BASE_URL}/notifications/${notificationId}/read`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
-    return await response.json();
-  } catch (error) {
-    console.error('Failed to mark notification as read:', error);
-    return { success: false, message: 'Failed to mark as read' };
+    const url = `${API_BASE_URL}/notifications/${encodeURIComponent(id)}/read`;
+
+    const data = await strictAPICall<any>(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      timeoutMs: 10000,
+      context: "Mark notification read",
+      validateSuccess: false,
+    });
+
+    return { success: !!data?.success, message: data?.message };
+  } catch (err) {
+    const mapped = mapErr(err, "Failed to mark as read");
+    return { success: false, message: mapped.message };
   }
 }
 
 /**
  * Mark all notifications as read for a user
  */
-export async function markAllNotificationsRead(
-  phone: string
-): Promise<{ success: boolean; message?: string }> {
+export async function markAllNotificationsRead(phone: string): Promise<{ success: boolean; message?: string }> {
   try {
-    const response = await fetch(`${API_BASE_URL}/notifications/mark-all-read`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const url = `${API_BASE_URL}/notifications/read-all`;
+
+    const data = await strictAPICall<any>(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phone }),
+      timeoutMs: 12000,
+      context: "Mark all notifications read",
+      validateSuccess: false,
     });
-    return await response.json();
-  } catch (error) {
-    console.error('Failed to mark all notifications as read:', error);
-    return { success: false, message: 'Failed to mark all as read' };
+
+    return { success: !!data?.success, message: data?.message };
+  } catch (err) {
+    const mapped = mapErr(err, "Failed to mark all as read");
+    return { success: false, message: mapped.message };
   }
 }

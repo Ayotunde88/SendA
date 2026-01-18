@@ -13,5 +13,10 @@ primary: "#2FBF71",
   yellow: "#db8f0dff",
   red: "#EF4444",
   gray: "#6B7280",
-  
+  error: "#EF4444",
+  border: "#E2DDD8",
+  textSecondary: "#9CA3AF",
+  overlay: "rgba(0, 0, 0, 0.5)",
+  borderLight: "#E2DDD8",
+
 };

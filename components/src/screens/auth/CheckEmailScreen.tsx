@@ -111,13 +111,15 @@ export default function CheckEmailCodeScreen() {
 
     setSubmitting(true);
     try {
-      await verifyEmailOtp(email, codeValue);
+      const userPhone = await AsyncStorage.getItem('user_phone');
+      const result = await verifyEmailOtp(email, codeValue, userPhone || undefined);
       console.log("Verify email OTP:", { email, code: codeValue });
 
       router.replace("/homeaddress");
 
-      setEmailVerified(true);
-      await AsyncStorage.setItem("email_verified", emailVerified.toString());
+      // await AsyncStorage.setItem("email_verified", "true");
+      // setEmailVerified(true);
+
     } catch (err: any) {
       console.log(getErrorMessage(err));
 

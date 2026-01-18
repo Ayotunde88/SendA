@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useAutoPolling } from "../../../hooks/useAutoPolling";
-import { View, Text, Pressable, ActivityIndicator, ScrollView, RefreshControl, Alert } from "react-native";
+import { View, Text, Pressable, ActivityIndicator, ScrollView, RefreshControl, Alert, Animated, Easing } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import ScreenShell from "./../../ScreenShell";
@@ -14,6 +14,32 @@ import { getUserTransactions, WalletTransaction } from "../../../api/transaction
 import { usePendingSettlements } from "../../../hooks/usePendingSettlements";
 
 const CACHED_ACCOUNTS_KEY = "cached_accounts_v1";
+const CACHED_WALLET_BALANCE_PREFIX = "cached_wallet_balance_";
+
+/** ✅ Get cached balance for a specific currency (stale-while-revalidate) */
+async function getCachedWalletBalance(currencyCode: string): Promise<number | null> {
+  try {
+    const key = `${CACHED_WALLET_BALANCE_PREFIX}${String(currencyCode || "").toUpperCase().trim()}`;
+    const raw = await AsyncStorage.getItem(key);
+    if (raw !== null) {
+      const num = Number(raw);
+      if (Number.isFinite(num)) return num;
+    }
+  } catch (e) {
+    console.log("[WalletScreen] Failed to load cached balance:", e);
+  }
+  return null;
+}
+
+/** ✅ Save cached balance for a specific currency */
+async function saveCachedWalletBalance(currencyCode: string, balance: number): Promise<void> {
+  try {
+    const key = `${CACHED_WALLET_BALANCE_PREFIX}${String(currencyCode || "").toUpperCase().trim()}`;
+    await AsyncStorage.setItem(key, String(balance));
+  } catch (e) {
+    console.log("[WalletScreen] Failed to save cached balance:", e);
+  }
+}
 
 /** Update a single currency's balance in the shared accounts cache */
 async function updateCachedAccountBalance(currencyCode: string, newBalance: number) {
@@ -32,6 +58,8 @@ async function updateCachedAccountBalance(currencyCode: string, newBalance: numb
     });
 
     await AsyncStorage.setItem(CACHED_ACCOUNTS_KEY, JSON.stringify(updated));
+    // ✅ Also update individual wallet cache
+    await saveCachedWalletBalance(currencyCode, newBalance);
   } catch (e) {
     console.log("[WalletScreen] Failed to update cached account balance:", e);
   }
@@ -62,6 +90,117 @@ interface NGNTransaction {
   recipientBank: string;
   status: string;
   createdAt: string;
+}
+
+/** ---------- Skeleton Components ---------- */
+function SkeletonPulse({ style }: { style?: any }) {
+  const animatedValue = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(animatedValue, {
+          toValue: 1,
+          duration: 800,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(animatedValue, {
+          toValue: 0,
+          duration: 800,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [animatedValue]);
+
+  const opacity = animatedValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 0.7],
+  });
+
+  return (
+    <Animated.View
+      style={[
+        {
+          backgroundColor: COLORS.border,
+          borderRadius: 8,
+        },
+        style,
+        { opacity },
+      ]}
+    />
+  );
+}
+
+function BalanceSkeleton() {
+  return (
+    <View style={{ alignItems: "center" }}>
+      <SkeletonPulse style={{ width: 50, height: 50, borderRadius: 25, marginBottom: 12 }} />
+      <SkeletonPulse style={{ width: 120, height: 18, marginBottom: 8 }} />
+      <SkeletonPulse style={{ width: 180, height: 36, marginBottom: 12 }} />
+    </View>
+  );
+}
+
+function TransactionRowSkeleton() {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", paddingVertical: 14, paddingHorizontal: 16 }}>
+      <SkeletonPulse style={{ width: 44, height: 44, borderRadius: 22 }} />
+      <View style={{ flex: 1, marginLeft: 12 }}>
+        <SkeletonPulse style={{ width: "70%", height: 16, marginBottom: 6 }} />
+        <SkeletonPulse style={{ width: "50%", height: 12, marginBottom: 4 }} />
+        <SkeletonPulse style={{ width: "40%", height: 10 }} />
+      </View>
+      <SkeletonPulse style={{ width: 80, height: 20 }} />
+    </View>
+  );
+}
+
+function TransactionsSkeleton() {
+  return (
+    <View style={{ marginTop: 8 }}>
+      {/* Date header skeleton */}
+      <SkeletonPulse style={{ width: 100, height: 14, marginBottom: 10, marginLeft: 4 }} />
+      
+      {/* Transaction card skeleton */}
+      <View style={{
+        backgroundColor: COLORS.bg,
+        borderRadius: 16,
+        marginBottom: 16,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.04,
+        shadowRadius: 8,
+        elevation: 2,
+      }}>
+        <TransactionRowSkeleton />
+        <View style={{ height: 1, backgroundColor: COLORS.borderLight, marginHorizontal: 16 }} />
+        <TransactionRowSkeleton />
+        <View style={{ height: 1, backgroundColor: COLORS.borderLight, marginHorizontal: 16 }} />
+        <TransactionRowSkeleton />
+      </View>
+
+      {/* Second group */}
+      <SkeletonPulse style={{ width: 80, height: 14, marginBottom: 10, marginLeft: 4 }} />
+      <View style={{
+        backgroundColor: COLORS.bg,
+        borderRadius: 16,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.04,
+        shadowRadius: 8,
+        elevation: 2,
+      }}>
+        <TransactionRowSkeleton />
+        <View style={{ height: 1, backgroundColor: COLORS.borderLight, marginHorizontal: 16 }} />
+        <TransactionRowSkeleton />
+      </View>
+    </View>
+  );
 }
 
 /** ---------- helpers ---------- */
@@ -115,8 +254,23 @@ export default function WalletScreen() {
   // ✅ Separate flags: initial load vs background refresh (prevents flicker)
   const [txInitialLoading, setTxInitialLoading] = useState(true);
   const [txRefreshing, setTxRefreshing] = useState(false);
+  const [balanceInitialLoading, setBalanceInitialLoading] = useState(true);
+
+  // ✅ Refs to prevent overlapping fetches and track initial load
+  const hasLoadedOnceRef = useRef(false);
+  const isFetchingBalanceRef = useRef(false);
 
   const isNGN = account?.currencyCode?.toUpperCase() === "NGN";
+
+  const [offlineMsg, setOfflineMsg] = useState<string | null>(null);
+  const lastOfflineShownRef = useRef<number>(0);
+
+  const showOfflineOnce = (msg: string) => {
+    const now = Date.now();
+    if (now - lastOfflineShownRef.current < 8000) return; // avoid spam
+    lastOfflineShownRef.current = now;
+    setOfflineMsg(msg);
+  };
 
   /** ---- Pending settlements (hybrid balance) ---- **/
   const {
@@ -133,7 +287,7 @@ export default function WalletScreen() {
       ? getOptimisticBalance(account.balance, currencyCode)
       : account?.balance;
 
-  // Parse initial account data from params (and hydrate missing balance from cache)
+  // ✅ Parse initial account data from params (with stale-while-revalidate cache hydration)
   useEffect(() => {
     let cancelled = false;
 
@@ -150,37 +304,46 @@ export default function WalletScreen() {
             ? Number(rawBalance)
             : NaN;
 
-        const initialBalance = Number.isFinite(balanceNum) ? balanceNum : null;
+        let initialBalance = Number.isFinite(balanceNum) ? balanceNum : null;
+        const ccy = normalizeCcy((parsed as any)?.currencyCode);
+
+        // ✅ STALE-WHILE-REVALIDATE: Check individual cache first if balance missing
+        if (initialBalance === null && ccy) {
+          const cachedIndividual = await getCachedWalletBalance(ccy);
+          if (cachedIndividual !== null) {
+            initialBalance = cachedIndividual;
+            console.log(`[WalletScreen] Using individual cached balance for ${ccy}:`, cachedIndividual);
+          }
+        }
+
+        // Fallback to shared accounts cache if individual cache not available
+        if (initialBalance === null && ccy) {
+          const cachedAccountsRaw = await AsyncStorage.getItem(CACHED_ACCOUNTS_KEY);
+          if (cachedAccountsRaw) {
+            const cached = JSON.parse(cachedAccountsRaw);
+            if (Array.isArray(cached)) {
+              const cachedMatch = cached.find((a: any) => normalizeCcy(a?.currencyCode) === ccy);
+              const cachedBal = cachedMatch?.balance;
+              const cachedNum =
+                typeof cachedBal === "number"
+                  ? cachedBal
+                  : typeof cachedBal === "string" && cachedBal.trim() !== ""
+                  ? Number(cachedBal)
+                  : NaN;
+
+              if (Number.isFinite(cachedNum)) {
+                initialBalance = cachedNum;
+                console.log(`[WalletScreen] Using shared cached balance for ${ccy}:`, cachedNum);
+              }
+            }
+          }
+        }
 
         if (cancelled) return;
         setAccount({
           ...(parsed as any),
           balance: initialBalance,
         });
-
-        // If navigation param didn't include a usable balance, try restore from cached accounts.
-        if (initialBalance === null) {
-          const cachedAccountsRaw = await AsyncStorage.getItem(CACHED_ACCOUNTS_KEY);
-          if (!cachedAccountsRaw) return;
-
-          const cached = JSON.parse(cachedAccountsRaw);
-          if (!Array.isArray(cached)) return;
-
-          const ccy = normalizeCcy((parsed as any)?.currencyCode);
-          const cachedMatch = cached.find((a: any) => normalizeCcy(a?.currencyCode) === ccy);
-
-          const cachedBal = cachedMatch?.balance;
-          const cachedNum =
-            typeof cachedBal === "number"
-              ? cachedBal
-              : typeof cachedBal === "string" && cachedBal.trim() !== ""
-              ? Number(cachedBal)
-              : NaN;
-
-          if (!cancelled && Number.isFinite(cachedNum)) {
-            setAccount((prev) => (prev ? { ...prev, balance: cachedNum } : prev));
-          }
-        }
       } catch (e) {
         console.log("Error parsing account data:", e);
       }
@@ -192,16 +355,30 @@ export default function WalletScreen() {
     };
   }, [params.accountData]);
 
-  // Refresh balance
+  // ✅ Refresh balance with stale-while-revalidate pattern
   const refreshBalance = useCallback(async () => {
     if (!account?.currencyCode) return;
+
+    // ✅ Prevent overlapping fetches
+    if (isFetchingBalanceRef.current) {
+      console.log('[WalletScreen] Skipping balance fetch - already in progress');
+      return;
+    }
+    isFetchingBalanceRef.current = true;
 
     const isLocalLedger = Boolean(account?.isExotic) || isNGN;
 
     try {
-      setRefreshingBalance(true);
+      // ✅ Only show spinner on first load, not background polls
+      if (!hasLoadedOnceRef.current) {
+        setRefreshingBalance(true);
+      }
+
       const phone = await AsyncStorage.getItem("user_phone");
-      if (!phone) return;
+      if (!phone) {
+        isFetchingBalanceRef.current = false;
+        return;
+      }
 
       let nextBalance: number | null | undefined = undefined;
 
@@ -210,9 +387,11 @@ export default function WalletScreen() {
         const next = safeNumber((response as any)?.balance, NaN);
         if ((response as any)?.success && Number.isFinite(next)) {
           nextBalance = next;
+          // ✅ Only update if we got valid data (prevents 0.00 flicker)
           setAccount((prev) => (prev ? { ...prev, balance: next } : null));
           await updateCachedAccountBalance(account.currencyCode, next);
         }
+        // ✅ If API failed, keep stale data - don't reset to null
       } else {
         const response = (apiConfig as any).getUserWallets
           ? await (apiConfig as any).getUserWallets(phone)
@@ -227,10 +406,12 @@ export default function WalletScreen() {
 
           if (Number.isFinite(next)) {
             nextBalance = next;
+            // ✅ Only update if we got valid data (prevents 0.00 flicker)
             setAccount((prev) => (prev ? { ...prev, balance: next } : null));
             await updateCachedAccountBalance(account.currencyCode, next);
           }
         }
+        // ✅ If API failed, keep stale data - don't reset to null
       }
 
       // Clear pending settlement once balances match
@@ -276,10 +457,16 @@ export default function WalletScreen() {
           }
         }
       }
+
+      hasLoadedOnceRef.current = true;
+      setBalanceInitialLoading(false);
     } catch (error) {
       console.log("Failed to refresh balance:", error);
+      // ✅ Don't reset balance on error - keep stale data
     } finally {
+      isFetchingBalanceRef.current = false;
       setRefreshingBalance(false);
+      setBalanceInitialLoading(false);
     }
   }, [account?.currencyCode, account?.isExotic, isNGN, settlements, checkAndClearIfSettled, removeSettlement]);
 
@@ -299,48 +486,42 @@ export default function WalletScreen() {
 
         const response = await getFlutterwaveTransactions(phone);
         if ((response as any)?.success) {
-          const mapped: NGNTransaction[] = ((response as any).transactions || []).map((t: any) => {
-            const createdAt =
-              t.created_at ??
-              t.createdAt ??
-              t.created_at_datetime ??
-              t.date ??
-              new Date().toISOString();
-
-            const amount = safeNumber(t.amount ?? t.amount_paid ?? t.charge, 0);
-
-            const recipientName =
+          const mapped: NGNTransaction[] = (response.transactions || []).map((t: any) => ({
+            id:
+              t.id ??
+              t.transaction_id ??
+              t.tx_ref ??
+              t.flw_ref ??
+              stableTxId([t.created_at, t.amount, t.recipient_name]),
+            amount: Number(t.amount ?? t.amount_paid ?? t.charge ?? 0),
+            recipientName:
+              t.recipientName ??
+              t.recipient_name ??
               t.recipient?.name ??
               t.customer?.name ??
               t.name ??
               t.beneficiary_name ??
               t.account_name ??
-              "—";
-
-            const recipientBank =
+              t.counterparty_name ??
+              "—",
+            recipientBank:
+              t.recipientBankName ??
+              t.recipient_bank_name ??
               t.recipient?.bank ??
               t.customer?.bank ??
               t.beneficiary_bank ??
               t.bank ??
               t.account_bank ??
-              "—";
-
-            const stableId =
-              t.id ??
-              t.transaction_id ??
-              t.tx_ref ??
-              t.flw_ref ??
-              stableTxId([createdAt, amount, recipientName, recipientBank, t.status]);
-
-            return {
-              id: String(stableId),
-              amount,
-              recipientName,
-              recipientBank,
-              status: String(t.status ?? t.transaction_status ?? t.response_code ?? "pending"),
-              createdAt: String(createdAt),
-            };
-          });
+              t.counterparty_bank ??
+              "—",
+            status: t.status ?? t.transaction_status ?? t.response_code ?? "pending",
+            createdAt:
+              t.created_at ??
+              t.createdAt ??
+              t.created_at_datetime ??
+              t.date ??
+              new Date().toISOString(),
+          }));
 
           setNgnTransactions(mapped);
         }
@@ -373,6 +554,11 @@ export default function WalletScreen() {
           // ✅ keep previous list if backend returns empty transiently
           const next = (response as any).transactions || [];
           if (Array.isArray(next)) setWalletTransactions(next);
+        } else {
+          if ((response as any).isNetworkError) {
+            showOfflineOnce(response.message || "Please check your connection.");
+          }
+          // ✅ Don't clear transactions on error - keep stale data
         }
       } catch (error) {
         console.log("Failed to fetch wallet transactions:", error);
@@ -406,9 +592,9 @@ export default function WalletScreen() {
   }, [account, refreshPendingSettlements, refreshBalance, isNGN, fetchNGNTransactions, fetchWalletTransactions]);
 
   useAutoPolling(fetchAllData, {
-    intervalMs: 15000,
-    enabled: !!account?.currencyCode, // ✅ poll even if no settlements (still silent, no flicker)
-    fetchOnMount: false, // we already do initial fetch in useEffect above
+    intervalMs: settlements.length > 0 ? 15000 : 60000, // 15s when settling, 60s otherwise
+    enabled: !!account?.currencyCode,
+    fetchOnMount: false, // We already fetch in useEffect above
   });
 
   // Pull-to-refresh handler (non-silent)
@@ -494,7 +680,7 @@ export default function WalletScreen() {
 
   const renderTransactionsList = () => {
     if (txInitialLoading) {
-      return <ActivityIndicator size="small" color={COLORS.primary} style={styles.walletTxLoading} />;
+      return <TransactionsSkeleton />;
     }
 
     if (isNGN) {
@@ -606,7 +792,12 @@ export default function WalletScreen() {
                   <View key={rowKey}>
                     <Pressable
                       style={styles.walletTxRow}
-                      onPress={() => router.push(`/transaction-detail/${tx.reference}` as any)}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/transactiondetail/[reference]",
+                          params: { reference: encodeURIComponent(String(tx.reference)) },
+                        } as any)
+                      }
                     >
                       <View style={styles.walletTxIconWrap}>
                         <Text style={styles.walletTxIconText}>{getTransactionIcon(tx.transactionType)}</Text>
@@ -618,7 +809,7 @@ export default function WalletScreen() {
                         </Text>
 
                         <Text style={styles.walletTxBank} numberOfLines={1}>
-                          {tx.counterpartyBank || tx.provider || tx.transactionType}
+                          {tx.counterpartyBank || tx.transactionType}
                         </Text>
 
                         <View style={styles.walletTxMetaRow}>
@@ -666,10 +857,16 @@ export default function WalletScreen() {
         <Text style={styles.flagBig}>{account.flag}</Text>
         <Text style={styles.walletTitle}>{account.currencyCode} balance</Text>
 
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
-          <Text style={styles.walletAmount}>{formatBalance(displayBalance, account.currencyCode)}</Text>
-          {refreshingBalance && <ActivityIndicator size="small" color={COLORS.primary} style={{ marginLeft: 8 }} />}
-        </View>
+        {balanceInitialLoading && account.balance === null ? (
+          <View style={{ alignItems: "center", marginVertical: 8 }}>
+            <SkeletonPulse style={{ width: 180, height: 36 }} />
+          </View>
+        ) : (
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
+            <Text style={styles.walletAmount}>{formatBalance(displayBalance, account.currencyCode)}</Text>
+            {refreshingBalance && <ActivityIndicator size="small" color={COLORS.primary} style={{ marginLeft: 8 }} />}
+          </View>
+        )}
 
         {/* ✅ small, non-flickery indicator */}
         {tab === "Transactions" && txRefreshing && (

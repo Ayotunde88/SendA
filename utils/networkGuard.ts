@@ -1,5 +1,6 @@
 
 import { Platform } from 'react-native';
+import { useRouter, useFocusEffect } from "expo-router";
 // @ts-ignore: module may not have type declarations in this project
 import NetInfo from '@react-native-community/netinfo';
 
@@ -13,6 +14,7 @@ export const DEFAULT_TIMEOUT_MS = 10000;
  * Custom error class for transaction failures
  */
 export class TransactionError extends Error {
+  
   public readonly code: string;
   public readonly isNetworkError: boolean;
   public readonly isTimeoutError: boolean;
@@ -33,6 +35,13 @@ export class TransactionError extends Error {
     this.isNetworkError = options?.isNetworkError ?? false;
     this.isTimeoutError = options?.isTimeoutError ?? false;
     this.details = options?.details;
+  }
+}
+
+export async function ensureNetworkOrThrow() {
+  const state = await NetInfo.fetch();
+  if (!state.isConnected) {
+    throw new Error("NO_INTERNET");
   }
 }
 

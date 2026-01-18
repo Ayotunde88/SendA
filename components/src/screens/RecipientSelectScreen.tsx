@@ -12,21 +12,22 @@ export interface SavedRecipient {
   accountNumber: string;
   bankCode: string;
   bankName: string;
-  currency: string; // Added to support multi-currency recipients
-  countryCode: string; // Added to support multi-country recipients
+  currency: string;
+  countryCode: string;
   createdAt: number;
 }
 
-const SAVED_RECIPIENTS_KEY = "saved_recipients"; // Changed to support all currencies
+const SAVED_RECIPIENTS_KEY = "saved_recipients";
 
 async function getSavedRecipients(currency?: string): Promise<SavedRecipient[]> {
   try {
     const data = await AsyncStorage.getItem(SAVED_RECIPIENTS_KEY);
-    const recipients: SavedRecipient[] = data ? JSON.parse(data) : [];
-    
-    // Filter by currency if provided
+    const parsed = data ? JSON.parse(data) : [];
+    const recipients: SavedRecipient[] = Array.isArray(parsed) ? parsed : [];
+
     if (currency) {
-      return recipients.filter(r => r.currency === currency);
+      const c = String(currency).toUpperCase().trim();
+      return recipients.filter((r) => String(r.currency || "").toUpperCase().trim() === c);
     }
     return recipients;
   } catch {
@@ -35,25 +36,45 @@ async function getSavedRecipients(currency?: string): Promise<SavedRecipient[]> 
 }
 
 function getInitials(name: string) {
-  return name
+  const safe = String(name || "").trim();
+  if (!safe) return "U";
+  return safe
     .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((n) => n[0]?.toUpperCase())
+    .join("");
+}
+
+// normalize expo-router param: string | string[] | undefined -> string
+function asString(v: string | string[] | undefined) {
+  if (Array.isArray(v)) return v[0] ?? "";
+  return v ?? "";
 }
 
 export default function RecipientSelectScreen() {
-  const params = useLocalSearchParams<{
-    destCurrency: string;
-    fromWalletId: string;
-    fromCurrency: string;
-    fromAmount: string;
-    toAmount: string;
-    rate?: string;
+  const raw = useLocalSearchParams<{
+    destCurrency?: string | string[];
+    fromWalletId?: string | string[];
+    fromCurrency?: string | string[];
+    fromAmount?: string | string[];
+    toAmount?: string | string[];
+    rate?: string | string[];
   }>();
 
-  const destCurrency = params.destCurrency || "NGN";
+  // ✅ build a SAFE plain object for navigation
+  const navParams = useMemo(() => {
+    return {
+      destCurrency: asString(raw.destCurrency),
+      fromWalletId: asString(raw.fromWalletId),
+      fromCurrency: asString(raw.fromCurrency),
+      fromAmount: asString(raw.fromAmount),
+      toAmount: asString(raw.toAmount),
+      rate: asString(raw.rate),
+    };
+  }, [raw.destCurrency, raw.fromWalletId, raw.fromCurrency, raw.fromAmount, raw.toAmount, raw.rate]);
+
+  const destCurrency = (navParams.destCurrency || "NGN").toUpperCase().trim();
   const countryCode = CURRENCY_TO_COUNTRY[destCurrency] || "NG";
   const countryName = COUNTRY_NAMES[countryCode] || countryCode;
   const isFlutterwave = isFlutterwaveCurrency(destCurrency);
@@ -62,7 +83,6 @@ export default function RecipientSelectScreen() {
   const [saved, setSaved] = useState<SavedRecipient[]>([]);
 
   useEffect(() => {
-    // Load saved recipients for this currency
     getSavedRecipients(destCurrency).then(setSaved);
   }, [destCurrency]);
 
@@ -71,20 +91,21 @@ export default function RecipientSelectScreen() {
     if (destCurrency === "CAD") {
       router.replace({
         pathname: "/eft-bank-details" as any,
-        params,
+        params: navParams as any,
       });
     }
-  }, [destCurrency]);
+  }, [destCurrency, navParams]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return saved;
-    return saved.filter(
-      (r) =>
-        r.accountName.toLowerCase().includes(q) ||
-        r.accountNumber.includes(q) ||
-        r.bankName.toLowerCase().includes(q)
-    );
+
+    return saved.filter((r) => {
+      const name = String(r.accountName || "").toLowerCase();
+      const bank = String(r.bankName || "").toLowerCase();
+      const acct = String(r.accountNumber || "");
+      return name.includes(q) || bank.includes(q) || acct.includes(q);
+    });
   }, [search, saved]);
 
   // If not a Flutterwave currency (e.g., CAD), show loading while redirecting
@@ -106,9 +127,7 @@ export default function RecipientSelectScreen() {
             <Text style={styles.recipientListBackIcon}>←</Text>
           </Pressable>
 
-          <Text style={styles.recipientListTitle}>
-            Send to {countryName}
-          </Text>
+          <Text style={styles.recipientListTitle}>Send to {countryName}</Text>
 
           <View style={{ flex: 1 }} />
 
@@ -133,10 +152,10 @@ export default function RecipientSelectScreen() {
             router.push({
               pathname: "/recipientnew" as any,
               params: {
-                ...params,
+                ...navParams,
                 countryCode,
                 countryName,
-              },
+              } as any,
             })
           }
           style={styles.recipientListNewRow}
@@ -151,9 +170,7 @@ export default function RecipientSelectScreen() {
           <Text style={styles.recipientListChevron}>›</Text>
         </Pressable>
 
-        <Text style={styles.recipientListSectionTitle}>
-          Saved {countryName} Recipients
-        </Text>
+        <Text style={styles.recipientListSectionTitle}>Saved {countryName} Recipients</Text>
 
         <ScrollView>
           {filtered.map((r) => (
@@ -163,10 +180,10 @@ export default function RecipientSelectScreen() {
                 router.push({
                   pathname: "/recipientconfirm" as any,
                   params: {
-                    ...params,
+                    ...navParams,
                     recipient: JSON.stringify(r),
                     mode: "saved",
-                  },
+                  } as any,
                 })
               }
               style={styles.recipientListRow}
@@ -187,9 +204,7 @@ export default function RecipientSelectScreen() {
           ))}
 
           {filtered.length === 0 && (
-            <Text style={styles.recipientListEmpty}>
-              No saved {countryName} recipients
-            </Text>
+            <Text style={styles.recipientListEmpty}>No saved {countryName} recipients</Text>
           )}
 
           <View style={styles.recipientListBottomSpacer} />

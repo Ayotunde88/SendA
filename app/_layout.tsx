@@ -25,27 +25,27 @@ function RootLayoutContent() {
         const second = String(segments?.[1] ?? "");
 
         // ✅ Any screens you want accessible without token
-        const publicScreens = new Set([
-          "login",
-          "getstarted",
-          "resetpassword",
-          "verifynumber",
-          "setpin",
-          "basicinfo",
-          "protectpassword",
-          "globalaccount",
-        ]);
+        // const publicScreens = new Set([
+        //   "login",
+        //   "getstarted",
+        //   "resetpassword",
+        //   "verifynumber",
+        //   "setpin",
+        //   "basicinfo",
+        //   "protectpassword",
+        //   "globalaccount",
+        // ]);
 
-        // ✅ Allow if current route is public (either in first or second segment)
-        const isPublic = publicScreens.has(first) || publicScreens.has(second);
+        // // ✅ Allow if current route is public (either in first or second segment)
+        // const isPublic = publicScreens.has(first) || publicScreens.has(second);
 
-        // ✅ If you are using a route group for auth like "(auth)", allow that group too
-        const isAuthGroup = first === "(auth)";
+        // // ✅ If you are using a route group for auth like "(auth)", allow that group too
+        // const isAuthGroup = first === "(auth)";
 
-        // If not authenticated, block access to private routes
-        if (!token && !(isPublic || isAuthGroup)) {
-          router.replace("/login");
-        }
+        // // If not authenticated, block access to private routes
+        // if (!token && !(isPublic || isAuthGroup)) {
+        //   router.replace("/login");
+        // }
 
         setAuthChecked(true);
       } catch (e) {
@@ -70,12 +70,14 @@ function RootLayoutContent() {
       }}
     >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="networkerrorstate" options={{ title: "Network Error", headerShown: false }} />
       <Stack.Screen name="getstarted" options={{ title: "Get Started", headerShown: false }} />
       <Stack.Screen name="login" />
       <Stack.Screen name="resetpassword" options={{ title: "Reset Password" }} />
       <Stack.Screen name="profile" options={{ title: "Profile" }} />
       <Stack.Screen name="bank-details" options={{ title: "Bank Details" }} />
       <Stack.Screen name="basicinfo" options={{ title: "Basic Information" }} />
+      <Stack.Screen name="personaverification" options={{ title: "Identity Verification" }} />
       <Stack.Screen name="addaccount" options={{ title: "Add Account" }} />
       <Stack.Screen name="globalaccount" options={{ title: "Global Account" }} />
       <Stack.Screen name="security-privacy" options={{ title: "Security and Privacy" }} />
@@ -90,6 +92,7 @@ function RootLayoutContent() {
       <Stack.Screen name="add-money-methods" options={{ title: "" }} />
       <Stack.Screen name="convert" options={{ title: "Convert" }} />
       <Stack.Screen name="exchangerates" options={{ title: "Exchange Rates" }} />
+      <Stack.Screen name="ratealerts" options={{ title: "Rate Alerts" }} />
       <Stack.Screen name="all-transactions" options={{ title: "Transactions" }} />
       <Stack.Screen name="transactiondetail/[reference]" options={{ title: "Transaction Details" }} />
       <Stack.Screen name="send-money-ngn" options={{ title: "Send money" }} />

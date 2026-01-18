@@ -68,6 +68,24 @@ export default function SendMoneyScreen() {
   const [selectedDestination, setSelectedDestination] = useState<PayoutDestination | null>(null);
   const [destinationSearch, setDestinationSearch] = useState("");
 
+  const handleAmountChange = (text: string) => {
+    // Remove anything that's not a digit or dot
+    let cleaned = text.replace(/[^0-9.]/g, "");
+
+    // Prevent more than one decimal point
+    const parts = cleaned.split(".");
+    if (parts.length > 2) {
+      cleaned = parts[0] + "." + parts.slice(1).join("");
+    }
+
+    // Limit to 2 decimal places
+    if (parts[1]?.length > 2) {
+      cleaned = parts[0] + "." + parts[1].slice(0, 2);
+    }
+
+    setFromAmount(cleaned);
+  };
+  
   useEffect(() => {
     AsyncStorage.getItem("user_phone").then((phone) => {
       if (phone) setUserPhone(phone);
@@ -292,7 +310,7 @@ export default function SendMoneyScreen() {
             <View style={styles.convertRow}>
               <TextInput
                 value={fromAmount}
-                onChangeText={setFromAmount}
+                onChangeText={handleAmountChange}
                 placeholder="0.00"
                 keyboardType="decimal-pad"
                 placeholderTextColor="#BDBDBD"

@@ -60,7 +60,7 @@ export default function RegionDropdown({ label, value, onChange, regions }: Prop
             </View>
 
             <TextInput
-              style={styles.searchInput}
+              style={[styles.searchInput, {margin:10, marginBottom: 15, padding: 10, borderWidth: 1, borderColor: "#ccc", borderRadius: 5}]}
               placeholder={`Search ${label.toLowerCase()}...`}
               placeholderTextColor="#999"
               value={search}

@@ -18,8 +18,8 @@ import { useNotificationContext } from "../../../context/NotificationContext";
 interface NotifRowProps {
   item: {
     id: string;
-    type: string;
-    icon: string;
+    type: any;
+    icon: any;
     title: string;
     body: string;
     time: string;

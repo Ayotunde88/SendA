@@ -55,25 +55,29 @@ export default function ProtectPasswordScreen() {
       <View style={styles.shell}>
         {/* Top row */}
         <View style={styles.topRow}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn} disabled={loading}>
-            <Text style={styles.backIcon}>←</Text>
-          </Pressable>
-
+          <View style={styles.headerRow}>
+            <Pressable onPress={() => router.back()} style={styles.backBtn}>
+              <Text style={styles.backIcon}>←</Text>
+            </Pressable>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>Create Password</Text>
+              {/* asdfghjkl$ */}
+            </View>
           <Pressable style={styles.getHelpPill} disabled={loading}>
             <Text style={styles.getHelpPillText}>Get help</Text>
           </Pressable>
+          </View>
+
         </View>
 
         {/* Progress line */}
+
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: "100%" }]} />
         </View>
 
-        <Text style={[styles.bigTitle, { marginTop: 18 }]}>Protect your account</Text>
-        <Text style={[styles.muted, { marginTop: 8, lineHeight: 22 }]}>
-          Enter a secure password with at least 8 characters, including one symbol and one number.
-        </Text>
-
+        
+          
         <Text style={[styles.label, { marginTop: 18 }]}>Create your password</Text>
         <View style={styles.passwordBox}>
           <TextInput

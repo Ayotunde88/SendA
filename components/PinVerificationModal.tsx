@@ -225,16 +225,15 @@ export default function PinVerificationModal({
               >
                 <Ionicons name="shield-checkmark-outline" size={28} color={COLORS.primary} />
               </View>
-              <Text style={{ fontSize: 20, fontWeight: "700", color: "#1F2937", textAlign: "center" }}>
+              <Text style={{ fontSize: 20, fontWeight: "700", color: "#1F2937",  }}>
                 {title}
               </Text>
               <Text
                 style={{
                   fontSize: 14,
                   color: "#6B7280",
-                  textAlign: "center",
                   marginTop: 4,
-                  paddingHorizontal: 20,
+                 
                 }}
               >
                 {subtitle}
@@ -250,6 +249,7 @@ export default function PinVerificationModal({
                 backgroundColor: "#F3F4F6",
                 justifyContent: "center",
                 alignItems: "center",
+                marginTop: -60,
               }}
             >
               <Ionicons name="close" size={20} color="#6B7280" />

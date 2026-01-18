@@ -1,5 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
+import { strictAPICall, TransactionError, ensureNetworkOrThrow } from "../utils/networkGuard";
+
+
+
 
 export const API_BASE_URL =
   Platform.OS === "android"
@@ -8,9 +12,21 @@ export const API_BASE_URL =
 
 // ============ FETCH WITH TIMEOUT HELPER ============
 const DEFAULT_TIMEOUT_MS = 15000; // 15 seconds
+const CACHED_TOTAL_BALANCE_KEY = "cached_total_balance_v1";
+const TOTAL_BALANCE_CACHE_TTL_MS = 2 * 60 * 1000; // 2 mins (adjust if you want)
 
-
-
+function mapConfigError(err: any, fallbackMsg: string) {
+  if (err instanceof TransactionError) {
+    return {
+      success: false,
+      message: err.message,
+      code: err.code,
+      isNetworkError: err.isNetworkError,
+      isTimeoutError: err.isTimeoutError,
+    };
+  }
+  return { success: false, message: fallbackMsg, code: "UNKNOWN_ERROR" };
+}
 
 
 const CACHED_ACCOUNTS_KEY = "cached_accounts_v1";
@@ -132,12 +148,94 @@ export const api = {
   },
 };
 
+// ============ PERSONA IDENTITY VERIFICATION ============
+
+/**
+ * Create Persona Inquiry session for identity verification
+ * Backend fetches user data by phone/email and creates the inquiry
+ */
+export async function createPersonaInquiry(params: {
+  phone?: string;
+  email?: string;
+}): Promise<{
+  success: boolean;
+  inquiry_id?: string;
+  session_token?: string;
+  resume_url?: string;
+  status?: string;
+  user_id?: string;
+  message?: string;
+}> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/persona/create-inquiry`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Failed to create Persona inquiry:', error);
+    return { success: false, message: 'Failed to start identity verification' };
+  }
+}
+
+/**
+ * Get Persona Inquiry status
+ */
+export async function getPersonaInquiryStatus(inquiryId: string): Promise<{
+  success: boolean;
+  status?: string;
+  reference_id?: string;
+  created_at?: string;
+  completed_at?: string;
+  message?: string;
+}> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/persona/inquiry-status?inquiry_id=${encodeURIComponent(inquiryId)}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Failed to get Persona inquiry status:', error);
+    return { success: false, message: 'Failed to get verification status' };
+  }
+}
+
+/**
+ * Resume an existing Persona Inquiry session
+ */
+export async function resumePersonaInquiry(params: {
+  phone?: string;
+  email?: string;
+}): Promise<{
+  success: boolean;
+  inquiry_id?: string;
+  resume_url?: string;
+  status?: string;
+  message?: string;
+}> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/persona/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Failed to resume Persona inquiry:', error);
+    return { success: false, message: 'Failed to resume verification' };
+  }
+}
+
+
 // ============ PLAID IDENTITY VERIFICATION ============
 
 /**
  * Create Plaid Identity Verification session
  * Backend fetches user data by phone/email and creates the IDV session
  */
+// Legacy Plaid functions (kept for compatibility)
 export async function createPlaidIdvSession(params: {
   phone?: string;
   email?: string;
@@ -150,22 +248,18 @@ export async function createPlaidIdvSession(params: {
   message?: string;
   error_code?: string;
 }> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/plaid/create-idv-session`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
-    });
-    return await response.json();
-  } catch (error) {
-    console.error('Failed to create Plaid IDV session:', error);
-    return { success: false, message: 'Failed to start identity verification' };
-  }
+  // Redirect to Persona
+  const result = await createPersonaInquiry(params);
+  return {
+    success: result.success,
+    link_token: result.session_token,
+    idv_session_id: result.inquiry_id,
+    shareable_url: result.resume_url,
+    user_id: result.user_id,
+    message: result.message,
+  };
 }
 
-/**
- * Get Plaid IDV session status
- */
 export async function getPlaidIdvStatus(idvSessionId: string): Promise<{
   success: boolean;
   status?: string;
@@ -174,16 +268,14 @@ export async function getPlaidIdvStatus(idvSessionId: string): Promise<{
   completed_at?: string;
   message?: string;
 }> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/plaid/idv-status?idv_session_id=${encodeURIComponent(idvSessionId)}`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    return await response.json();
-  } catch (error) {
-    console.error('Failed to get Plaid IDV status:', error);
-    return { success: false, message: 'Failed to get verification status' };
-  }
+  // Redirect to Persona
+  const result = await getPersonaInquiryStatus(idvSessionId);
+  return {
+    success: result.success,
+    status: result.status,
+    completed_at: result.completed_at,
+    message: result.message,
+  };
 }
 
 export async function checkPinExists(phone: string) {
@@ -275,17 +367,34 @@ let countriesCache: { data: Country[]; timestamp: number } | null = null;
 const COUNTRIES_CACHE_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
 
 export const getCountries = async (): Promise<Country[]> => {
-  // Return cached data if fresh
   const now = Date.now();
-  if (countriesCache && (now - countriesCache.timestamp) < COUNTRIES_CACHE_MAX_AGE_MS) {
+
+  // ✅ Return cached data if still fresh
+  if (
+    countriesCache &&
+    now - countriesCache.timestamp < COUNTRIES_CACHE_MAX_AGE_MS
+  ) {
     return countriesCache.data;
   }
 
   try {
-    const response = await fetchWithTimeout(`${API_BASE_URL}/countries/public`, {}, 10000);
-    if (!response.ok) throw new Error('Failed to fetch countries');
+    // 🔒 1️⃣ Check internet FIRST
+    await ensureNetworkOrThrow();
+
+    // 🌍 2️⃣ Make API request
+    const response = await fetchWithTimeout(
+      `${API_BASE_URL}/countries/public`,
+      {},
+      10000
+    );
+
+    if (!response.ok) {
+      throw new Error("SERVER_ERROR");
+    }
+
     const data = await response.json();
-    const countries = data.map((c: any) => ({
+
+    const countries: Country[] = data.map((c: any) => ({
       code: c.code,
       name: c.countryName || c.name,
       flag: c.flag,
@@ -293,16 +402,29 @@ export const getCountries = async (): Promise<Country[]> => {
       currencyCode: c.currencyCode,
       currencyEnabled: c.currencyEnabled,
     }));
-    
-    // Cache the result
+
+    // 💾 3️⃣ Cache result
     countriesCache = { data: countries, timestamp: now };
+
     return countries;
-  } catch (error) {
-    // If we have stale cache, return it instead of failing
+  } catch (error: any) {
+    // 🧠 4️⃣ If offline → return stale cache if available
+    if (error?.message === "NO_INTERNET") {
+      if (countriesCache) {
+        console.log("[getCountries] Offline → using cached countries");
+        return countriesCache.data;
+      }
+
+      // Explicit error for UI
+      throw new Error("NO_INTERNET");
+    }
+
+    // 🧠 5️⃣ Other errors → still fallback to cache
     if (countriesCache) {
-      console.log('[getCountries] Using stale cache due to error');
+      console.log("[getCountries] Error → using stale cache");
       return countriesCache.data;
     }
+
     throw error;
   }
 };
@@ -380,11 +502,11 @@ export const sendEmailOtp = async (email: string) => {
   return res.json();
 };
 
-export const verifyEmailOtp = async (email: string, code: string) => {
+export const verifyEmailOtp = async (email: string, code: string, phone?: string) => {
   const res = await fetch(`${API_BASE_URL}/otp/email/verify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, code }),
+    body: JSON.stringify({ email, code, phone }),
   });
   return res.json();
 };
@@ -419,31 +541,28 @@ export async function saveUserAddress(payload: {
 
 export async function getUserProfile(phone: string): Promise<{
   success: boolean;
-  user?: {
-    first_name: string;
-    baseCurrency: any;
-    homeCurrencySymbol: any;
-    homeCurrency: any;
-    country: any;
-    countryCode: any;
-    id: string;
-    phone: string;
-    email: string;
-    firstName: string;
-    lastName: string;
-    kycStatus: string;
-    status: string;
-    onboardingStep: string;
-  };
+  user?: any;
   message?: string;
+  code?: string;
+  isNetworkError?: boolean;
+  isTimeoutError?: boolean;
 }> {
-  const res = await fetch(`${API_BASE_URL}/users/profile`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phone }),
-  });
-  return res.json();
+  try {
+    const data = await strictAPICall<any>(`${API_BASE_URL}/users/profile`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone }),
+      timeoutMs: 12000,
+      context: "Fetch user profile",
+      validateSuccess: false,
+    });
+
+    return data;
+  } catch (err) {
+    return mapConfigError(err, "Failed to fetch profile");
+  }
 }
+
 
 // Fetch enabled currencies from backend
 
@@ -491,43 +610,118 @@ const BALANCE_CACHE_MAX_AGE_MS = 60000; // 1 minute
 export const getUserAccounts = async (
   phone: string,
   includeBalances: boolean = false
-): Promise<{ success: boolean; accounts?: any[]; error?: string }> => {
+): Promise<{
+  success: boolean;
+  accounts?: any[];
+  error?: string;
+  source?: "api" | "cache";
+  fetchedAt?: number;
+}> => {
+  const cached = await loadCachedAccounts();
+
   try {
-    const cached = await loadCachedAccounts();
+    const url = `${API_BASE_URL}/currencycloud/user-accounts/${encodeURIComponent(phone)}${
+      includeBalances ? "?includeBalances=true" : ""
+    }`;
 
-    const url = `${API_BASE_URL}/currencycloud/user-accounts/${encodeURIComponent(phone)}${includeBalances ? "?includeBalances=true" : ""}`;
-    const response = await fetchWithTimeout(url, {}, 15000);
+    const data = await strictAPICall<any>(url, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      timeoutMs: 15000,
+      context: "Fetch user accounts",
+      validateSuccess: false,
+    });
 
-    if (!response.ok) {
-      // ✅ return cache if exists
-      if (cached.length > 0) return { success: true, accounts: cached };
-      return { success: false, accounts: [], error: `HTTP ${response.status}` };
+    // Defensive normalization
+    const apiAccounts = Array.isArray(data?.accounts)
+      ? data.accounts.map((acc: any) => ({
+          ...acc,
+          currencyCode: String(acc.currencyCode || acc.currency_code || "")
+            .toUpperCase()
+            .trim(),
+        }))
+      : [];
+
+    // If API returns nothing useful → fallback to cache
+    if (apiAccounts.length === 0) {
+      if (cached.length > 0) {
+        return {
+          success: true,
+          accounts: cached,
+          source: "cache",
+          fetchedAt: Date.now(),
+        };
+      }
+
+      return {
+        success: false,
+        accounts: [],
+        error: "No accounts returned",
+      };
     }
 
-    const text = await response.text();
-    if (!text || text.trim() === "") {
-      if (cached.length > 0) return { success: true, accounts: cached };
-      return { success: false, accounts: [], error: "Empty response" };
-    }
-
-    const data = JSON.parse(text);
-    const apiAccounts = (data.accounts || []).map((acc: any) => ({
-      ...acc,
-      currencyCode: String(acc.currencyCode || acc.currency_code || "").toUpperCase().trim(),
-    }));
-
-    // ✅ merge with cache to prevent flicker-to-zero
+    // ✅ Merge API + cache to prevent flicker
     const merged = mergeWithCache(apiAccounts, cached);
 
-    // ✅ save merged snapshot for Home + Wallet
+    // ✅ Persist snapshot for offline + wallet screens
     await saveCachedAccounts(merged);
 
-    return { success: true, accounts: merged };
+    return {
+      success: true,
+      accounts: merged,
+      source: "api",
+      fetchedAt: Date.now(),
+    };
+  } catch (err) {
+    // 🚫 NO console.error spam
+    if (err instanceof TransactionError) {
+      // Network / timeout / offline → fallback silently
+      if (cached.length > 0) {
+        return {
+          success: true,
+          accounts: cached,
+          source: "cache",
+          fetchedAt: Date.now(),
+        };
+      }
+
+      return {
+        success: false,
+        error: err.message,
+      };
+    }
+
+    // Unknown error (very rare)
+    if (cached.length > 0) {
+      return {
+        success: true,
+        accounts: cached,
+        source: "cache",
+        fetchedAt: Date.now(),
+      };
+    }
+
+    return {
+      success: false,
+      error: "Unable to load accounts",
+    };
+  }
+};
+
+export const checkEmailVerified = async (phone: string): Promise<{
+  emailVerified: boolean;
+  emailVerifiedAt: string | null;
+  email: string | null;
+}> => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/users/email-verified?phone=${encodeURIComponent(phone)}`);
+    if (!res.ok) {
+      return { emailVerified: false, emailVerifiedAt: null, email: null };
+    }
+    return res.json();
   } catch (error) {
-    console.error("Get user accounts error:", error);
-    const cached = await loadCachedAccounts();
-    if (cached.length > 0) return { success: true, accounts: cached };
-    return { success: false, error: "Network error" };
+    console.error('Failed to check email verification status:', error);
+    return { emailVerified: false, emailVerifiedAt: null, email: null };
   }
 };
 
@@ -537,25 +731,42 @@ export async function getExchangeRates(pairs: string): Promise<{
   success: boolean;
   rates?: any[];
   message?: string;
+  code?: string;
+  isNetworkError?: boolean;
+  isTimeoutError?: boolean;
 }> {
+  const url = `${API_BASE_URL}/exchange-rates/public?source=live&pairs=${encodeURIComponent(pairs)}`;
+
   try {
-    // Use source=live to fetch real-time rates from CurrencyCloud/OXR instead of database overrides
-    const response = await fetch(`${API_BASE_URL}/exchange-rates/public?source=live&pairs=${encodeURIComponent(pairs)}`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
+    const data = await strictAPICall<any>(url, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      timeoutMs: 10000,
+      context: "Fetch exchange rates",
+      validateSuccess: false,
     });
-    return await response.json();
-  } catch (error) {
-    console.error('Failed to fetch exchange rates:', error);
-    return { success: false, rates: [], message: 'Failed to fetch exchange rates' };
+
+    return {
+      success: !!data?.success,
+      rates: Array.isArray(data?.rates) ? data.rates : [],
+      message: data?.message,
+    };
+  } catch (err) {
+    return { ...mapConfigError(err, "Failed to fetch exchange rates"), rates: [] };
   }
 }
+
 
 // Cache for total balance to prevent flicker during transient failures
 let totalBalanceCache: { data: any; timestamp: number } | null = null;
 const TOTAL_BALANCE_CACHE_MAX_AGE_MS = 30000; // 30 seconds
 
+// Short-lived quote cache + in-flight de-duplication to prevent rate-limits
+const __quoteCache = new Map<string, { ts: number; data: any }>();
+const __quoteInflight = new Map<string, Promise<any>>();
+
 export const getTotalBalance = async (phone: string): Promise<{
+  cached: any;
   success: boolean;
   totalBalance?: number;
   homeCurrency?: string;
@@ -571,21 +782,23 @@ export const getTotalBalance = async (phone: string): Promise<{
     
     if (!response.ok) {
       // Return cached data if available
+      const cachedData = totalBalanceCache?.data ?? null;
       if (totalBalanceCache) {
         console.log('[getTotalBalance] Using cached balance due to non-ok response');
-        return totalBalanceCache.data;
+        return cachedData;
       }
-      return { success: false, error: `HTTP ${response.status}` };
+      return { cached: cachedData, success: false, error: `HTTP ${response.status}` };
     }
 
     const text = await response.text();
     if (!text || text.trim() === '') {
       // Empty response - return cached data
+      const cachedData = totalBalanceCache?.data ?? null;
       if (totalBalanceCache) {
         console.log('[getTotalBalance] Using cached balance due to empty response');
-        return totalBalanceCache.data;
+        return cachedData;
       }
-      return { success: false, error: 'Empty response' };
+      return { cached: cachedData, success: false, error: 'Empty response' };
     }
 
     const data = JSON.parse(text);
@@ -607,7 +820,7 @@ export const getTotalBalance = async (phone: string): Promise<{
       return totalBalanceCache.data;
     }
     
-    return { success: false, error: error.message || 'Network error' };
+    return { cached: totalBalanceCache ? totalBalanceCache.data : null, success: false, error: error.message || 'Network error' };
   }
 };
 
@@ -626,19 +839,23 @@ export async function getUserWallets(phone: string): Promise<{
   success: boolean;
   wallets: any[];
   message?: string;
+  code?: string;
+  isNetworkError?: boolean;
+  isTimeoutError?: boolean;
 }> {
+  const encodedPhone = encodeURIComponent(phone);
+  const url = `${API_BASE_URL}/currencycloud/user/wallets?phone=${encodedPhone}`;
+
   try {
-    const encodedPhone = encodeURIComponent(phone);
-    // Use /user/wallets with query param - this endpoint correctly uses cc_contact_id for balance scoping
-    const response = await fetch(`${API_BASE_URL}/currencycloud/user/wallets?phone=${encodedPhone}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+    const data = await strictAPICall<any>(url, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      timeoutMs: 12000,
+      context: "Fetch wallets",
+      validateSuccess: false,
     });
 
-    const data = await response.json();
-    if (data.success && Array.isArray(data.wallets)) {
+    if (data?.success && Array.isArray(data?.wallets)) {
       return {
         success: true,
         wallets: data.wallets.map((w: any) => {
@@ -647,8 +864,9 @@ export async function getUserWallets(phone: string): Promise<{
             typeof rawBalance === "number"
               ? rawBalance
               : typeof rawBalance === "string" && rawBalance.trim() !== ""
-                ? Number(rawBalance)
-                : NaN;
+              ? Number(rawBalance)
+              : NaN;
+
           const balance = Number.isFinite(parsedBalance) ? parsedBalance : null;
 
           return {
@@ -656,12 +874,12 @@ export async function getUserWallets(phone: string): Promise<{
             currencyCode: w.currency_code || w.currencyCode,
             currencyName: w.currency_name || w.currencyName,
             countryName: w.country_name || w.countryName,
-            flag: w.flag || '🏳️',
-            symbol: w.symbol || w.currency_code || '',
+            flag: w.flag || "🏳️",
+            symbol: w.symbol || w.currency_code || "",
             balance,
             formattedBalance:
-              w.formatted_balance || w.formattedBalance || (balance === null ? '' : `${balance}`),
-            status: w.status || 'active',
+              w.formatted_balance || w.formattedBalance || (balance === null ? "" : `${balance}`),
+            status: w.status || "active",
           };
         }),
       };
@@ -670,17 +888,13 @@ export async function getUserWallets(phone: string): Promise<{
     return {
       success: false,
       wallets: [],
-      message: data.message || 'Failed to load wallets',
+      message: data?.message || "Failed to load wallets",
     };
-  } catch (error) {
-    console.error('Failed to fetch wallets:', error);
-    return {
-      success: false,
-      wallets: [],
-      message: 'Failed to fetch wallets',
-    };
+  } catch (err) {
+    return { ...mapConfigError(err, "Failed to fetch wallets"), wallets: [] };
   }
 }
+
 
 // Get conversion quote
 export const getConversionQuote = async (
@@ -689,20 +903,58 @@ export const getConversionQuote = async (
   buyCurrency: string,
   amount: number,
   fixedSide: "sell" | "buy" = "sell"
-) => {
-  const response = await fetch(`${API_BASE_URL}/currencycloud/user/convert/quote`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      phone,
-      sell_currency: sellCurrency,
-      buy_currency: buyCurrency,
-      amount,
-      fixed_side: fixedSide,
-    }),
-  });
-  return response.json();
+): Promise<any> => {
+  try {
+    // ---- Client-side quote dedupe & short cache ----
+    // Typing into an amount field can trigger multiple quote requests.
+    // This layer coalesces in-flight identical requests and reuses a fresh quote
+    // for a few seconds to avoid "too many API requests" errors.
+    const key = [
+      String(phone || ""),
+      String(sellCurrency || "").toUpperCase().trim(),
+      String(buyCurrency || "").toUpperCase().trim(),
+      fixedSide,
+      // round to cents so tiny formatting diffs don't spam the API
+      Number.isFinite(amount) ? Math.round(amount * 100) / 100 : amount,
+    ].join("|");
+
+    const now = Date.now();
+    const cached = (__quoteCache.get(key) || null);
+    if (cached && now - cached.ts < 3500) {
+      return cached.data;
+    }
+
+    const inflight = __quoteInflight.get(key);
+    if (inflight) return inflight;
+
+    const promise = strictAPICall<any>(`${API_BASE_URL}/currencycloud/user/convert/quote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        phone,
+        sell_currency: sellCurrency,
+        buy_currency: buyCurrency,
+        amount,
+        fixed_side: fixedSide,
+      }),
+      timeoutMs: 15000,
+      context: "Get conversion quote",
+      validateSuccess: false,
+    });
+
+    __quoteInflight.set(key, promise);
+    try {
+      const data = await promise;
+      __quoteCache.set(key, { ts: Date.now(), data });
+      return data;
+    } finally {
+      __quoteInflight.delete(key);
+    }
+  } catch (err) {
+    return mapConfigError(err, "Failed to get quote");
+  }
 };
+
 
 // Execute conversion
 export const executeConversion = async (
@@ -711,20 +963,29 @@ export const executeConversion = async (
   buyCurrency: string,
   amount: number,
   fixedSide: "sell" | "buy" = "sell"
-) => {
-  const response = await fetch(`${API_BASE_URL}/currencycloud/user/convert`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      phone,
-      sell_currency: sellCurrency,
-      buy_currency: buyCurrency,
-      amount,
-      fixed_side: fixedSide,
-    }),
-  });
-  return response.json();
+): Promise<any> => {
+  try {
+    const data = await strictAPICall<any>(`${API_BASE_URL}/currencycloud/user/convert`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        phone,
+        sell_currency: sellCurrency,
+        buy_currency: buyCurrency,
+        amount,
+        fixed_side: fixedSide,
+      }),
+      timeoutMs: 20000,
+      context: "Execute conversion",
+      validateSuccess: false,
+    });
+
+    return data;
+  } catch (err) {
+    return mapConfigError(err, "Conversion failed");
+  }
 };
+
 
 /**
  * Register push notification token with the backend
@@ -798,5 +1059,99 @@ export async function getPayoutDestinations(): Promise<{
   } catch (error) {
     console.error('Failed to fetch payout destinations:', error);
     return { success: false, destinations: [], message: 'Failed to fetch payout destinations' };
+  }
+}
+
+export type RateAlert = {
+  id: number;
+  userId: string;
+  fromCurrency: string;
+  toCurrency: string;
+  targetRate: number;
+  direction: 'above' | 'below';
+  isRecurring: boolean;
+  isActive: boolean;
+  triggerCount: number;
+  triggeredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/**
+ * Get all rate alerts for a user
+ */
+export async function getRateAlerts(phone: string, activeOnly = false): Promise<{ success: boolean; alerts: RateAlert[]; message?: string }> {
+  try {
+    const url = `${API_BASE_URL}/rate-alerts?phone=${encodeURIComponent(phone)}&active=${activeOnly}`;
+    const response = await fetchWithTimeout(url, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return response.json();
+  } catch (error) {
+    console.error('Failed to fetch rate alerts:', error);
+    return { success: false, alerts: [], message: 'Failed to fetch rate alerts' };
+  }
+}
+
+/**
+ * Create a new rate alert
+ */
+export async function createRateAlert(params: {
+  phone: string;
+  from_currency: string;
+  to_currency: string;
+  target_rate: number;
+  direction: 'above' | 'below';
+  is_recurring: boolean;
+}): Promise<{ success: boolean; alert?: RateAlert; message?: string }> {
+  try {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/rate-alerts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    return response.json();
+  } catch (error) {
+    console.error('Failed to create rate alert:', error);
+    return { success: false, message: 'Failed to create rate alert' };
+  }
+}
+
+/**
+ * Update a rate alert
+ */
+export async function updateRateAlert(alertId: number, updates: {
+  target_rate?: number;
+  direction?: 'above' | 'below';
+  is_recurring?: boolean;
+  is_active?: boolean;
+}): Promise<{ success: boolean; alert?: RateAlert; message?: string }> {
+  try {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/rate-alerts/${alertId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    return response.json();
+  } catch (error) {
+    console.error('Failed to update rate alert:', error);
+    return { success: false, message: 'Failed to update rate alert' };
+  }
+}
+
+/**
+ * Delete a rate alert
+ */
+export async function deleteRateAlert(alertId: number): Promise<{ success: boolean; message?: string }> {
+  try {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/rate-alerts/${alertId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return response.json();
+  } catch (error) {
+    console.error('Failed to delete rate alert:', error);
+    return { success: false, message: 'Failed to delete rate alert' };
   }
 }
