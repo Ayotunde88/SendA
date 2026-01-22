@@ -31,6 +31,7 @@ import {
   Bank,
 } from "../../../api/flutterwave";
 
+
 // ============================================================
 // Bank Picker Modal Component
 // ============================================================
@@ -941,6 +942,7 @@ export default function SendMoneyScreen() {
               <CurrencyPill
                 flag={fromWallet?.flag || "🏳️"}
                 code={fromWallet?.currencyCode || "Select"}
+                countryCode={fromWallet?.countryCode ?? ""}
                 onPress={() => setShowFromPicker(true)}
               />
             </View>

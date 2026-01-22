@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useAutoPolling } from "../../../hooks/useAutoPolling";
-import { View, Text, Pressable, ActivityIndicator, ScrollView, RefreshControl, Alert, Animated, Easing } from "react-native";
+import { View, Text, Pressable, ScrollView, Alert, Animated, Easing } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import ScreenShell from "./../../ScreenShell";
@@ -12,6 +12,7 @@ import * as apiConfig from "../../../api/config";
 import { getLocalBalance, getFlutterwaveTransactions } from "../../../api/flutterwave";
 import { getUserTransactions, WalletTransaction } from "../../../api/transactions";
 import { usePendingSettlements } from "../../../hooks/usePendingSettlements";
+import CountryFlag from "../../../components/CountryFlag";
 
 const CACHED_ACCOUNTS_KEY = "cached_accounts_v1";
 const CACHED_WALLET_BALANCE_PREFIX = "cached_wallet_balance_";
@@ -58,7 +59,6 @@ async function updateCachedAccountBalance(currencyCode: string, newBalance: numb
     });
 
     await AsyncStorage.setItem(CACHED_ACCOUNTS_KEY, JSON.stringify(updated));
-    // ✅ Also update individual wallet cache
     await saveCachedWalletBalance(currencyCode, newBalance);
   } catch (e) {
     console.log("[WalletScreen] Failed to update cached account balance:", e);
@@ -126,7 +126,7 @@ function SkeletonPulse({ style }: { style?: any }) {
     <Animated.View
       style={[
         {
-          backgroundColor: COLORS.border,
+          backgroundColor: "#E5E7EB",
           borderRadius: 8,
         },
         style,
@@ -136,12 +136,27 @@ function SkeletonPulse({ style }: { style?: any }) {
   );
 }
 
-function BalanceSkeleton() {
+function WalletHeaderSkeleton() {
   return (
-    <View style={{ alignItems: "center" }}>
-      <SkeletonPulse style={{ width: 50, height: 50, borderRadius: 25, marginBottom: 12 }} />
-      <SkeletonPulse style={{ width: 120, height: 18, marginBottom: 8 }} />
-      <SkeletonPulse style={{ width: 180, height: 36, marginBottom: 12 }} />
+    <View style={{ alignItems: "center", paddingVertical: 18 }}>
+      <SkeletonPulse style={{ width: 60, height: 60, borderRadius: 30, marginBottom: 12 }} />
+      <SkeletonPulse style={{ width: 140, height: 14, marginBottom: 10 }} />
+      <SkeletonPulse style={{ width: 220, height: 34, borderRadius: 10 }} />
+      <View style={{ height: 16 }} />
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        <SkeletonPulse style={{ width: 70, height: 44, borderRadius: 16 }} />
+        <SkeletonPulse style={{ width: 70, height: 44, borderRadius: 16 }} />
+        <SkeletonPulse style={{ width: 70, height: 44, borderRadius: 16 }} />
+        <SkeletonPulse style={{ width: 70, height: 44, borderRadius: 16 }} />
+      </View>
+    </View>
+  );
+}
+
+function BalanceLineSkeleton() {
+  return (
+    <View style={{ alignItems: "center", marginVertical: 10 }}>
+      <SkeletonPulse style={{ width: 220, height: 34, borderRadius: 10 }} />
     </View>
   );
 }
@@ -155,7 +170,7 @@ function TransactionRowSkeleton() {
         <SkeletonPulse style={{ width: "50%", height: 12, marginBottom: 4 }} />
         <SkeletonPulse style={{ width: "40%", height: 10 }} />
       </View>
-      <SkeletonPulse style={{ width: 80, height: 20 }} />
+      <SkeletonPulse style={{ width: 80, height: 20, borderRadius: 8 }} />
     </View>
   );
 }
@@ -163,20 +178,21 @@ function TransactionRowSkeleton() {
 function TransactionsSkeleton() {
   return (
     <View style={{ marginTop: 8 }}>
-      {/* Date header skeleton */}
-      <SkeletonPulse style={{ width: 100, height: 14, marginBottom: 10, marginLeft: 4 }} />
-      
-      {/* Transaction card skeleton */}
-      <View style={{
-        backgroundColor: COLORS.bg,
-        borderRadius: 16,
-        marginBottom: 16,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.04,
-        shadowRadius: 8,
-        elevation: 2,
-      }}>
+      <SkeletonPulse style={{ width: 120, height: 14, marginBottom: 10, marginLeft: 16 }} />
+
+      <View
+        style={{
+          backgroundColor: COLORS.bg,
+          borderRadius: 16,
+          marginHorizontal: 12,
+          marginBottom: 16,
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.04,
+          shadowRadius: 8,
+          elevation: 2,
+        }}
+      >
         <TransactionRowSkeleton />
         <View style={{ height: 1, backgroundColor: COLORS.borderLight, marginHorizontal: 16 }} />
         <TransactionRowSkeleton />
@@ -184,17 +200,20 @@ function TransactionsSkeleton() {
         <TransactionRowSkeleton />
       </View>
 
-      {/* Second group */}
-      <SkeletonPulse style={{ width: 80, height: 14, marginBottom: 10, marginLeft: 4 }} />
-      <View style={{
-        backgroundColor: COLORS.bg,
-        borderRadius: 16,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.04,
-        shadowRadius: 8,
-        elevation: 2,
-      }}>
+      <SkeletonPulse style={{ width: 90, height: 14, marginBottom: 10, marginLeft: 16 }} />
+
+      <View
+        style={{
+          backgroundColor: COLORS.bg,
+          borderRadius: 16,
+          marginHorizontal: 12,
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.04,
+          shadowRadius: 8,
+          elevation: 2,
+        }}
+      >
         <TransactionRowSkeleton />
         <View style={{ height: 1, backgroundColor: COLORS.borderLight, marginHorizontal: 16 }} />
         <TransactionRowSkeleton />
@@ -213,7 +232,6 @@ function normalizeCcy(v: any) {
   return String(v || "").toUpperCase().trim();
 }
 
-/** Stable YYYY-MM-DD key for grouping (prevents group reorder flicker) */
 function dayKey(dateString: string) {
   const d = new Date(dateString);
   if (Number.isNaN(d.getTime())) return "unknown";
@@ -230,7 +248,6 @@ function prettyDayLabel(yyyyMmDd: string) {
   return dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-/** Stable tx id fallback (NO random) */
 function stableTxId(parts: Array<string | number | undefined | null>) {
   const raw = parts.map((p) => String(p ?? "")).join("|");
   let h = 0;
@@ -245,18 +262,16 @@ export default function WalletScreen() {
   const [tab, setTab] = useState("Transactions");
   const [account, setAccount] = useState<AccountDetails | null>(null);
 
-  const [refreshingBalance, setRefreshingBalance] = useState(false);
-
   // Transactions state
   const [ngnTransactions, setNgnTransactions] = useState<NGNTransaction[]>([]);
   const [walletTransactions, setWalletTransactions] = useState<WalletTransaction[]>([]);
 
-  // ✅ Separate flags: initial load vs background refresh (prevents flicker)
+  // ✅ Loading flags (skeletons only)
   const [txInitialLoading, setTxInitialLoading] = useState(true);
   const [txRefreshing, setTxRefreshing] = useState(false);
   const [balanceInitialLoading, setBalanceInitialLoading] = useState(true);
+  const [balanceRefreshing, setBalanceRefreshing] = useState(false);
 
-  // ✅ Refs to prevent overlapping fetches and track initial load
   const hasLoadedOnceRef = useRef(false);
   const isFetchingBalanceRef = useRef(false);
 
@@ -264,10 +279,9 @@ export default function WalletScreen() {
 
   const [offlineMsg, setOfflineMsg] = useState<string | null>(null);
   const lastOfflineShownRef = useRef<number>(0);
-
   const showOfflineOnce = (msg: string) => {
     const now = Date.now();
-    if (now - lastOfflineShownRef.current < 8000) return; // avoid spam
+    if (now - lastOfflineShownRef.current < 8000) return;
     lastOfflineShownRef.current = now;
     setOfflineMsg(msg);
   };
@@ -287,7 +301,7 @@ export default function WalletScreen() {
       ? getOptimisticBalance(account.balance, currencyCode)
       : account?.balance;
 
-  // ✅ Parse initial account data from params (with stale-while-revalidate cache hydration)
+  // ✅ Parse initial account data (with SWR cache hydration)
   useEffect(() => {
     let cancelled = false;
 
@@ -307,16 +321,11 @@ export default function WalletScreen() {
         let initialBalance = Number.isFinite(balanceNum) ? balanceNum : null;
         const ccy = normalizeCcy((parsed as any)?.currencyCode);
 
-        // ✅ STALE-WHILE-REVALIDATE: Check individual cache first if balance missing
         if (initialBalance === null && ccy) {
           const cachedIndividual = await getCachedWalletBalance(ccy);
-          if (cachedIndividual !== null) {
-            initialBalance = cachedIndividual;
-            console.log(`[WalletScreen] Using individual cached balance for ${ccy}:`, cachedIndividual);
-          }
+          if (cachedIndividual !== null) initialBalance = cachedIndividual;
         }
 
-        // Fallback to shared accounts cache if individual cache not available
         if (initialBalance === null && ccy) {
           const cachedAccountsRaw = await AsyncStorage.getItem(CACHED_ACCOUNTS_KEY);
           if (cachedAccountsRaw) {
@@ -331,19 +340,13 @@ export default function WalletScreen() {
                   ? Number(cachedBal)
                   : NaN;
 
-              if (Number.isFinite(cachedNum)) {
-                initialBalance = cachedNum;
-                console.log(`[WalletScreen] Using shared cached balance for ${ccy}:`, cachedNum);
-              }
+              if (Number.isFinite(cachedNum)) initialBalance = cachedNum;
             }
           }
         }
 
         if (cancelled) return;
-        setAccount({
-          ...(parsed as any),
-          balance: initialBalance,
-        });
+        setAccount({ ...(parsed as any), balance: initialBalance });
       } catch (e) {
         console.log("Error parsing account data:", e);
       }
@@ -355,30 +358,24 @@ export default function WalletScreen() {
     };
   }, [params.accountData]);
 
-  // ✅ Refresh balance with stale-while-revalidate pattern
+  // ✅ Refresh balance (no spinner: skeleton only)
   const refreshBalance = useCallback(async () => {
     if (!account?.currencyCode) return;
 
-    // ✅ Prevent overlapping fetches
-    if (isFetchingBalanceRef.current) {
-      console.log('[WalletScreen] Skipping balance fetch - already in progress');
-      return;
-    }
+    if (isFetchingBalanceRef.current) return;
     isFetchingBalanceRef.current = true;
 
     const isLocalLedger = Boolean(account?.isExotic) || isNGN;
 
     try {
-      // ✅ Only show spinner on first load, not background polls
-      if (!hasLoadedOnceRef.current) {
-        setRefreshingBalance(true);
-      }
+      // Skeleton behavior:
+      // - first load: show skeleton
+      // - background refresh: keep current number visible BUT add a thin skeleton line below (or replace line if you prefer)
+      if (!hasLoadedOnceRef.current) setBalanceInitialLoading(true);
+      else setBalanceRefreshing(true);
 
       const phone = await AsyncStorage.getItem("user_phone");
-      if (!phone) {
-        isFetchingBalanceRef.current = false;
-        return;
-      }
+      if (!phone) return;
 
       let nextBalance: number | null | undefined = undefined;
 
@@ -387,11 +384,9 @@ export default function WalletScreen() {
         const next = safeNumber((response as any)?.balance, NaN);
         if ((response as any)?.success && Number.isFinite(next)) {
           nextBalance = next;
-          // ✅ Only update if we got valid data (prevents 0.00 flicker)
           setAccount((prev) => (prev ? { ...prev, balance: next } : null));
           await updateCachedAccountBalance(account.currencyCode, next);
         }
-        // ✅ If API failed, keep stale data - don't reset to null
       } else {
         const response = (apiConfig as any).getUserWallets
           ? await (apiConfig as any).getUserWallets(phone)
@@ -406,12 +401,10 @@ export default function WalletScreen() {
 
           if (Number.isFinite(next)) {
             nextBalance = next;
-            // ✅ Only update if we got valid data (prevents 0.00 flicker)
             setAccount((prev) => (prev ? { ...prev, balance: next } : null));
             await updateCachedAccountBalance(account.currencyCode, next);
           }
         }
-        // ✅ If API failed, keep stale data - don't reset to null
       }
 
       // Clear pending settlement once balances match
@@ -459,27 +452,24 @@ export default function WalletScreen() {
       }
 
       hasLoadedOnceRef.current = true;
-      setBalanceInitialLoading(false);
     } catch (error) {
       console.log("Failed to refresh balance:", error);
-      // ✅ Don't reset balance on error - keep stale data
     } finally {
       isFetchingBalanceRef.current = false;
-      setRefreshingBalance(false);
       setBalanceInitialLoading(false);
+      setBalanceRefreshing(false);
     }
   }, [account?.currencyCode, account?.isExotic, isNGN, settlements, checkAndClearIfSettled, removeSettlement]);
 
-  // ✅ Fetch NGN transactions (supports silent refresh)
+  // ✅ NGN transactions
   const fetchNGNTransactions = useCallback(
     async (opts?: { silent?: boolean }) => {
       if (!isNGN) return;
-
       const silent = !!opts?.silent;
 
       try {
         if (!silent) setTxInitialLoading(true);
-        setTxRefreshing(silent);
+        else setTxRefreshing(true);
 
         const phone = await AsyncStorage.getItem("user_phone");
         if (!phone) return;
@@ -515,14 +505,8 @@ export default function WalletScreen() {
               t.counterparty_bank ??
               "—",
             status: t.status ?? t.transaction_status ?? t.response_code ?? "pending",
-            createdAt:
-              t.created_at ??
-              t.createdAt ??
-              t.created_at_datetime ??
-              t.date ??
-              new Date().toISOString(),
+            createdAt: t.created_at ?? t.createdAt ?? t.date ?? new Date().toISOString(),
           }));
-
           setNgnTransactions(mapped);
         }
       } catch (error) {
@@ -535,40 +519,35 @@ export default function WalletScreen() {
     [isNGN]
   );
 
-  // ✅ Fetch non-NGN transactions (supports silent refresh)
-  const fetchWalletTransactions = useCallback(
-    async (opts?: { silent?: boolean }) => {
-      if (isNGN || !account?.currencyCode) return;
+  // ✅ non-NGN transactions
+  const fetchWalletTransactions = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!account?.currencyCode) return;
 
-      const silent = !!opts?.silent;
+    const silent = !!opts?.silent;
 
-      try {
-        if (!silent) setTxInitialLoading(true);
-        setTxRefreshing(silent);
+    try {
+      if (!silent) setTxInitialLoading(true);
+      else setTxRefreshing(true);
 
-        const phone = await AsyncStorage.getItem("user_phone");
-        if (!phone) return;
+      const phone = await AsyncStorage.getItem("user_phone");
+      if (!phone) return;
 
-        const response = await getUserTransactions(phone, 1, 50, account.currencyCode);
-        if ((response as any)?.success) {
-          // ✅ keep previous list if backend returns empty transiently
-          const next = (response as any).transactions || [];
-          if (Array.isArray(next)) setWalletTransactions(next);
-        } else {
-          if ((response as any).isNetworkError) {
-            showOfflineOnce(response.message || "Please check your connection.");
-          }
-          // ✅ Don't clear transactions on error - keep stale data
+      const response = await getUserTransactions(phone, 1, 50, account.currencyCode);
+      if ((response as any)?.success) {
+        const next = (response as any).transactions || [];
+        if (Array.isArray(next)) setWalletTransactions(next);
+      } else {
+        if ((response as any).isNetworkError) {
+          showOfflineOnce((response as any).message || "Please check your connection.");
         }
-      } catch (error) {
-        console.log("Failed to fetch wallet transactions:", error);
-      } finally {
-        setTxInitialLoading(false);
-        setTxRefreshing(false);
       }
-    },
-    [isNGN, account?.currencyCode]
-  );
+    } catch (error) {
+      console.log("Failed to fetch wallet transactions:", error);
+    } finally {
+      setTxInitialLoading(false);
+      setTxRefreshing(false);
+    }
+  }, [account?.currencyCode]);
 
   // ✅ Initial load once account is ready
   useEffect(() => {
@@ -577,34 +556,45 @@ export default function WalletScreen() {
     (async () => {
       await refreshPendingSettlements();
       await refreshBalance();
-      if (isNGN) await fetchNGNTransactions({ silent: false });
-      else await fetchWalletTransactions({ silent: false });
+
+      if (isNGN) {
+        await Promise.all([fetchNGNTransactions({ silent: false }), fetchWalletTransactions({ silent: false })]);
+      } else {
+        await fetchWalletTransactions({ silent: false });
+      }
     })();
   }, [account?.currencyCode]);
 
-  // Auto-polling (silent refresh to avoid flicker)
-  const fetchAllData = useCallback(async () => {
-    if (!account) return;
-    await refreshPendingSettlements();
-    await refreshBalance();
-    if (isNGN) await fetchNGNTransactions({ silent: true });
-    else await fetchWalletTransactions({ silent: true });
-  }, [account, refreshPendingSettlements, refreshBalance, isNGN, fetchNGNTransactions, fetchWalletTransactions]);
+  // ✅ Auto polling (silent refresh => skeleton overlay only, no spinner)
+  // const fetchAllData = useCallback(async () => {
+  //   if (!account) return;
+  //   await refreshPendingSettlements();
+  //   await refreshBalance();
 
-  useAutoPolling(fetchAllData, {
-    intervalMs: settlements.length > 0 ? 15000 : 60000, // 15s when settling, 60s otherwise
-    enabled: !!account?.currencyCode,
-    fetchOnMount: false, // We already fetch in useEffect above
-  });
+  //   if (isNGN) {
+  //     await Promise.all([fetchNGNTransactions({ silent: true }), fetchWalletTransactions({ silent: true })]);
+  //   } else {
+  //     await fetchWalletTransactions({ silent: true });
+  //   }
+  // }, [account, refreshPendingSettlements, refreshBalance, isNGN, fetchNGNTransactions, fetchWalletTransactions]);
 
-  // Pull-to-refresh handler (non-silent)
-  const onRefreshTransactions = useCallback(async () => {
+  // useAutoPolling(fetchAllData, {
+  //   intervalMs: settlements.length > 0 ? 15000 : 60000,
+  //   enabled: !!account?.currencyCode,
+  //   fetchOnMount: false,
+  // });
+
+  // ✅ Manual refresh button (no RefreshControl spinner)
+  const onPressRefresh = useCallback(async () => {
     setTxRefreshing(true);
     try {
       await refreshPendingSettlements();
       await refreshBalance();
-      if (isNGN) await fetchNGNTransactions({ silent: false });
-      else await fetchWalletTransactions({ silent: false });
+      if (isNGN) {
+        await Promise.all([fetchNGNTransactions({ silent: true }), fetchWalletTransactions({ silent: true })]);
+      } else {
+        await fetchWalletTransactions({ silent: true });
+      }
     } finally {
       setTxRefreshing(false);
     }
@@ -643,7 +633,6 @@ export default function WalletScreen() {
     return t.includes("deposit") || t.includes("credit") || t.includes("inbound") || t.includes("funding");
   };
 
-  // ✅ Memoized grouped lists (less re-render churn)
   const ngnGroups = useMemo(() => {
     const groups: Record<string, NGNTransaction[]> = {};
     for (const tx of ngnTransactions) {
@@ -651,7 +640,7 @@ export default function WalletScreen() {
       if (!groups[key]) groups[key] = [];
       groups[key].push(tx);
     }
-    const entries = Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0])); // YYYY-MM-DD sort
+    const entries = Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
     entries.forEach(([, arr]) => arr.sort((x, y) => new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime()));
     return entries;
   }, [ngnTransactions]);
@@ -668,109 +657,198 @@ export default function WalletScreen() {
     return entries;
   }, [walletTransactions]);
 
+  // ✅ No spinner when account missing: show skeleton header
   if (!account) {
     return (
       <ScreenShell>
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-        </View>
+        <WalletHeaderSkeleton />
+        <TransactionsSkeleton />
       </ScreenShell>
     );
   }
 
   const renderTransactionsList = () => {
-    if (txInitialLoading) {
-      return <TransactionsSkeleton />;
-    }
+    // skeleton on first load
+    if (txInitialLoading) return <TransactionsSkeleton />;
+
+    // while refreshing: keep list AND show skeleton overlay at top (no spinner)
+    const refreshingOverlay = txRefreshing ? (
+      <View style={{ marginTop: 8 }}>
+        <TransactionsSkeleton />
+      </View>
+    ) : null;
 
     if (isNGN) {
-      if (ngnTransactions.length === 0) return <Text style={styles.walletTxEmpty}>No transactions yet</Text>;
+      const hasLedger = walletTransactions.length > 0;
+      const hasPayouts = ngnTransactions.length > 0;
+      if (!hasLedger && !hasPayouts) {
+        return (
+          <View>
+            {refreshingOverlay}
+            <Text style={styles.walletTxEmpty}>No transactions yet</Text>
+          </View>
+        );
+      }
 
       return (
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={txRefreshing}
-              onRefresh={onRefreshTransactions}
-              colors={[COLORS.primary]}
-              tintColor={COLORS.primary}
-            />
-          }
-        >
-          {ngnGroups.map(([day, items]) => (
-            <View key={day}>
-              <Text style={styles.walletTxGroupTitle}>{prettyDayLabel(day)}</Text>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {refreshingOverlay}
 
-              <View style={styles.walletTxCard}>
-                {items.map((tx, idx) => {
-                  const sKey = normalizeStatus(tx.status);
-                  const statusStyle =
-                    sKey === "completed"
-                      ? styles.walletTxStatusCompleted
-                      : sKey === "failed"
-                      ? styles.walletTxStatusFailed
-                      : styles.walletTxStatusPending;
+          {/* Ledger tx */}
+          {hasLedger &&
+            walletGroups.map(([day, items]) => (
+              <View key={`ledger-${day}`}>
+                <Text style={styles.walletTxGroupTitle}>{prettyDayLabel(day)}</Text>
 
-                  return (
-                    <View key={tx.id}>
-                      <Pressable style={styles.walletTxRow}>
-                        <View style={styles.walletTxIconWrap}>
-                          <Text style={styles.walletTxIconText}>⇄</Text>
-                        </View>
+                <View style={styles.walletTxCard}>
+                  {items.map((tx, idx) => {
+                    const sKey = normalizeStatus(tx.status);
+                    const statusStyle =
+                      sKey === "completed"
+                        ? styles.walletTxStatusCompleted
+                        : sKey === "failed"
+                        ? styles.walletTxStatusFailed
+                        : styles.walletTxStatusPending;
 
-                        <View style={styles.walletTxMid}>
-                          <Text style={styles.walletTxName} numberOfLines={1}>
-                            {tx.recipientName}
-                          </Text>
+                    const txIsCredit = isCredit(tx.transactionType);
+                    const rowKey = String(
+                      tx.id ||
+                        tx.reference ||
+                        stableTxId([tx.createdAt, tx.amount, tx.transactionType, tx.currency, tx.counterpartyName])
+                    );
 
-                          <Text style={styles.walletTxBank} numberOfLines={1}>
-                            {tx.recipientBank}
-                          </Text>
+                    return (
+                      <View key={rowKey}>
+                        <Pressable
+                          style={styles.walletTxRow}
+                          onPress={() =>
+                            router.push({
+                              pathname: "/transactiondetail/[reference]",
+                              params: { reference: encodeURIComponent(String(tx.reference)) },
+                            } as any)
+                          }
+                        >
+                          <View style={styles.walletTxIconWrap}>
+                            <Text style={styles.walletTxIconText}>{getTransactionIcon(tx.transactionType)}</Text>
+                          </View>
 
-                          <View style={styles.walletTxMetaRow}>
-                            <Text style={styles.walletTxTime}>
-                              {new Date(tx.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                          <View style={styles.walletTxMid}>
+                            <Text style={styles.walletTxName} numberOfLines={1}>
+                              {tx.counterpartyName || tx.description || tx.transactionType || "Transaction"}
                             </Text>
 
-                            <Text style={[styles.walletTxStatus, statusStyle]}>• {statusLabel(tx.status)}</Text>
+                            <Text style={styles.walletTxBank} numberOfLines={1}>
+                              {tx.counterpartyBank || tx.transactionType}
+                            </Text>
+
+                            <View style={styles.walletTxMetaRow}>
+                              <Text style={styles.walletTxTime}>
+                                {new Date(tx.createdAt).toLocaleTimeString("en-US", {
+                                  hour: "numeric",
+                                  minute: "2-digit",
+                                })}
+                              </Text>
+                              <Text style={[styles.walletTxStatus, statusStyle]}>• {statusLabel(tx.status)}</Text>
+                            </View>
                           </View>
-                        </View>
 
-                        <View style={styles.walletTxRight}>
-                          <Text style={[styles.walletTxAmt, styles.walletTxAmtNeg]}>
-                            -₦{safeNumber(tx.amount, 0).toLocaleString()}
-                          </Text>
-                        </View>
-                      </Pressable>
+                          <View style={styles.walletTxRight}>
+                            <Text style={[styles.walletTxAmt, txIsCredit ? styles.walletTxAmtPos : styles.walletTxAmtNeg]}>
+                              {txIsCredit ? "+" : "-"}
+                              {tx.currency}{" "}
+                              {safeNumber(tx.amount, 0).toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </Text>
+                          </View>
+                        </Pressable>
 
-                      {idx !== items.length - 1 && <View style={styles.walletTxDivider} />}
-                    </View>
-                  );
-                })}
+                        {idx !== items.length - 1 && <View style={styles.walletTxDivider} />}
+                      </View>
+                    );
+                  })}
+                </View>
               </View>
-            </View>
-          ))}
+            ))}
+
+          {/* NGN payouts (Flutterwave) */}
+          {hasPayouts &&
+            ngnGroups.map(([day, items]) => (
+              <View key={`payout-${day}`}>
+                <Text style={styles.walletTxGroupTitle}>{prettyDayLabel(day)}</Text>
+
+                <View style={styles.walletTxCard}>
+                  {items.map((tx, idx) => {
+                    const sKey = normalizeStatus(tx.status);
+                    const statusStyle =
+                      sKey === "completed"
+                        ? styles.walletTxStatusCompleted
+                        : sKey === "failed"
+                        ? styles.walletTxStatusFailed
+                        : styles.walletTxStatusPending;
+
+                    return (
+                      <View key={tx.id}>
+                        <Pressable style={styles.walletTxRow}>
+                          <View style={styles.walletTxIconWrap}>
+                            <Text style={styles.walletTxIconText}>⇄</Text>
+                          </View>
+
+                          <View style={styles.walletTxMid}>
+                            <Text style={styles.walletTxName} numberOfLines={1}>
+                              {tx.recipientName}
+                            </Text>
+
+                            <Text style={styles.walletTxBank} numberOfLines={1}>
+                              {tx.recipientBank}
+                            </Text>
+
+                            <View style={styles.walletTxMetaRow}>
+                              <Text style={styles.walletTxTime}>
+                                {new Date(tx.createdAt).toLocaleTimeString("en-US", {
+                                  hour: "numeric",
+                                  minute: "2-digit",
+                                })}
+                              </Text>
+                              <Text style={[styles.walletTxStatus, statusStyle]}>• {statusLabel(tx.status)}</Text>
+                            </View>
+                          </View>
+
+                          <View style={styles.walletTxRight}>
+                            <Text style={[styles.walletTxAmt, styles.walletTxAmtNeg]}>
+                              -₦{safeNumber(tx.amount, 0).toLocaleString()}
+                            </Text>
+                          </View>
+                        </Pressable>
+
+                        {idx !== items.length - 1 && <View style={styles.walletTxDivider} />}
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            ))}
+
           <View style={{ height: 18 }} />
         </ScrollView>
       );
     }
 
     // non-NGN
-    if (walletTransactions.length === 0) return <Text style={styles.walletTxEmpty}>No transactions yet</Text>;
+    if (walletTransactions.length === 0) {
+      return (
+        <View>
+          {refreshingOverlay}
+          <Text style={styles.walletTxEmpty}>No transactions yet</Text>
+        </View>
+      );
+    }
 
     return (
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={txRefreshing}
-            onRefresh={onRefreshTransactions}
-            colors={[COLORS.primary]}
-            tintColor={COLORS.primary}
-          />
-        }
-      >
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {refreshingOverlay}
+
         {walletGroups.map(([day, items]) => (
           <View key={day}>
             <Text style={styles.walletTxGroupTitle}>{prettyDayLabel(day)}</Text>
@@ -786,7 +864,9 @@ export default function WalletScreen() {
                     : styles.walletTxStatusPending;
 
                 const txIsCredit = isCredit(tx.transactionType);
-                const rowKey = String(tx.id || tx.reference || stableTxId([tx.createdAt, tx.amount, tx.transactionType, tx.currency, tx.counterpartyName]));
+                const rowKey = String(
+                  tx.id || tx.reference || stableTxId([tx.createdAt, tx.amount, tx.transactionType, tx.currency, tx.counterpartyName])
+                );
 
                 return (
                   <View key={rowKey}>
@@ -816,7 +896,6 @@ export default function WalletScreen() {
                           <Text style={styles.walletTxTime}>
                             {new Date(tx.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
                           </Text>
-
                           <Text style={[styles.walletTxStatus, statusStyle]}>• {statusLabel(tx.status)}</Text>
                         </View>
                       </View>
@@ -837,6 +916,7 @@ export default function WalletScreen() {
             </View>
           </View>
         ))}
+
         <View style={{ height: 18 }} />
       </ScrollView>
     );
@@ -852,25 +932,48 @@ export default function WalletScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>Wallet</Text>
           </View>
+
+          {/* ✅ Manual refresh button (NO spinner anywhere) */}
+          <Pressable
+            onPress={onPressRefresh}
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              borderRadius: 999,
+              backgroundColor: "rgba(25,149,95,0.10)",
+              borderWidth: 1,
+              borderColor: "rgba(25,149,95,0.18)",
+            }}
+          >
+            <Text style={{ fontWeight: "900", color: COLORS.green, fontSize: 12 }}>
+              {txRefreshing ? "Refreshing" : "Refresh"}
+            </Text>
+          </Pressable>
         </View>
 
-        <Text style={styles.flagBig}>{account.flag}</Text>
-        <Text style={styles.walletTitle}>{account.currencyCode} balance</Text>
-
-        {balanceInitialLoading && account.balance === null ? (
-          <View style={{ alignItems: "center", marginVertical: 8 }}>
-            <SkeletonPulse style={{ width: 180, height: 36 }} />
-          </View>
-        ) : (
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
-            <Text style={styles.walletAmount}>{formatBalance(displayBalance, account.currencyCode)}</Text>
-            {refreshingBalance && <ActivityIndicator size="small" color={COLORS.primary} style={{ marginLeft: 8 }} />}
+        {!!offlineMsg && (
+          <View style={{ marginTop: 10, marginHorizontal: 14, padding: 10, borderRadius: 12, backgroundColor: "#FFF7ED" }}>
+            <Text style={{ color: "#9A3412", fontSize: 12, fontWeight: "800" }}>{offlineMsg}</Text>
           </View>
         )}
 
-        {/* ✅ small, non-flickery indicator */}
-        {tab === "Transactions" && txRefreshing && (
-          <Text style={{ marginTop: 6, color: "#6b7280", fontSize: 12, fontWeight: "700" }}>Refreshing…</Text>
+        <CountryFlag currencyCode={account.currencyCode} fallbackEmoji={account.flag} size="xl" style={{ marginBottom: 8 }} />
+        <Text style={styles.walletTitle}>{account.currencyCode} balance</Text>
+
+        {/* ✅ Balance: skeleton only (no ActivityIndicator) */}
+        {balanceInitialLoading && account.balance === null ? (
+          <BalanceLineSkeleton />
+        ) : (
+          <View style={{ alignItems: "center" }}>
+            <Text style={styles.walletAmount}>{formatBalance(displayBalance, account.currencyCode)}</Text>
+
+            {/* ✅ during refresh: show a small skeleton strip instead of spinner */}
+            {balanceRefreshing && (
+              <View style={{ marginTop: 8 }}>
+                <SkeletonPulse style={{ width: 140, height: 10, borderRadius: 999 }} />
+              </View>
+            )}
+          </View>
         )}
 
         {!isNGN && (
@@ -883,17 +986,30 @@ export default function WalletScreen() {
         <View style={styles.walletActionRow}>
           <WalletAction icon="↑" label="Send" onPress={() => router.push(`/sendmoney?from=${account.currencyCode}`)} />
           <WalletAction icon="＋" label="Add" onPress={() => router.push("/addmoneymethods")} />
-          <WalletAction icon="－" label="Withdraw" onPress={() => {}} />
+          <WalletAction icon="－" label="Withdraw" onPress={() => router.push(`/withdraw?currency=${account.currencyCode}`)} />
           <WalletAction icon="↻" label="Convert" onPress={() => router.push(`/convert?from=${account.currencyCode}`)} />
         </View>
 
         <View style={styles.pillTabs}>
-          <Pressable style={[styles.pillTab, tab === "Transactions" && styles.pillTabActive]} onPress={() => setTab("Transactions")}>
+          <Pressable
+            style={[styles.pillTab, tab === "Transactions" && styles.pillTabActive]}
+            onPress={() => setTab("Transactions")}
+          >
             <Text style={[styles.pillTabText, tab === "Transactions" && styles.pillTabTextActive]}>Transactions</Text>
           </Pressable>
 
-          {!isNGN && (
-            <Pressable style={[styles.pillTab, tab === "Account" && styles.pillTabActive]} onPress={() => setTab("Account")}>
+          {!isNGN? (
+            <Pressable
+              style={[styles.pillTab, tab === "Account" && styles.pillTabActive]}
+              onPress={() => setTab("Account")}
+            >
+              <Text style={[styles.pillTabText, tab === "Account" && styles.pillTabTextActive]}>Account details</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              style={[styles.pillTab, tab === "Account" && styles.pillTabActive]}
+              onPress={() => setTab("Account")}
+            >
               <Text style={[styles.pillTabText, tab === "Account" && styles.pillTabTextActive]}>Account details</Text>
             </Pressable>
           )}

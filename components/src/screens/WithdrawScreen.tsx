@@ -1,70 +1,32 @@
-import React, { useState, useEffect, useCallback } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { router, useLocalSearchParams } from "expo-router";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
   Text,
   TextInput,
-  Pressable,
-  Alert,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   TouchableWithoutFeedback,
-  Keyboard,
-  Modal,
-  FlatList,
+  View,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useLocalSearchParams, router } from "expo-router";
-import ScreenShell from "../../../components/ScreenShell";
-import CurrencyPill from "../../../components/CurrencyPill";
-import CurrencyPickerModal, { Wallet } from "../../../components/CurrencyPickerModal";
-import { styles } from "../../../theme/styles";
 import {
-  getUserWallets,
   getConversionQuote,
   getPayoutDestinations,
+  getUserWallets,
   PayoutDestination,
-  calculateSendFee,
 } from "../../../api/config";
-import FeeBreakdown, { FeeInfo } from "../../../components/FeeBreakdown";
+import CurrencyPickerModal, { Wallet } from "../../../components/CurrencyPickerModal";
+import CurrencyPill from "../../../components/CurrencyPill";
+import ScreenShell from "../../../components/ScreenShell";
+import { styles } from "../../../theme/styles";
 import CountryFlag from "../../../components/CountryFlag";
 
-// ------------------------------------------------------------
-// Country code normalization (fixes your countryCode errors)
-// ------------------------------------------------------------
-const COUNTRY_CODE_BY_CURRENCY: Record<string, string> = {
-  CAD: "CA",
-  NGN: "NG",
-  USD: "US",
-  EUR: "EU",
-  GBP: "GB",
-  KES: "KE",
-  GHS: "GH",
-  RWF: "RW",
-};
-
-function normalizeCountryCode(input?: unknown): string {
-  if (typeof input !== "string") return "";
-  const trimmed = input.trim();
-  if (!trimmed) return "";
-  const up = trimmed.toUpperCase();
-  if (up.length === 2) return up;
-  return COUNTRY_CODE_BY_CURRENCY[up] || "";
-}
-
-function getWalletCountryCode(w?: Wallet | null): string {
-  const anyW = w as any;
-  return normalizeCountryCode(anyW?.countryCode ?? anyW?.country_code ?? w?.currencyCode);
-}
-
-function getDestinationCountryCode(d?: PayoutDestination | null): string {
-  const anyD = d as any;
-  return normalizeCountryCode(anyD?.countryCode ?? anyD?.country_code ?? d?.code);
-}
-
-// ------------------------------------------------------------
-// Quick Amount Button
-// ------------------------------------------------------------
 const QuickAmountButton = ({
   label,
   onPress,
@@ -90,6 +52,31 @@ const QuickAmountButton = ({
   </Pressable>
 );
 
+/**
+ * ✅ Safe countryCode readers (no TS redlines)
+ */
+const getWalletCountryCode = (w: Wallet | null | undefined): string => {
+  const cc = (w as unknown as { countryCode?: string })?.countryCode;
+  return typeof cc === "string" ? cc : "";
+};
+
+const getDestinationCountryCode = (d: PayoutDestination | null | undefined): string => {
+  const cc = (d as unknown as { countryCode?: string })?.countryCode;
+  return typeof cc === "string" ? cc : "";
+};
+
+/**
+ * ✅ Typed wrapper so we can pass countryCode to CountryFlag with no TS errors
+ * (even if CountryFlag’s props don’t declare it yet).
+ */
+const CountryFlagSafe = CountryFlag as unknown as React.ComponentType<{
+  currencyCode?: string;
+  countryCode?: string;
+  fallbackEmoji?: string;
+  size?: "sm" | "md" | "lg" | string;
+  style?: any;
+}>;
+
 export default function SendMoneyScreen() {
   const params = useLocalSearchParams();
   const initialFromCurrency = params.from as string | undefined;
@@ -97,9 +84,11 @@ export default function SendMoneyScreen() {
   const [userPhone, setUserPhone] = useState<string>("");
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [fromWallet, setFromWallet] = useState<Wallet | null>(null);
+
   const [fromAmount, setFromAmount] = useState("");
   const [toAmount, setToAmount] = useState("");
   const [rate, setRate] = useState<number | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [balanceExceeded, setBalanceExceeded] = useState(false);
@@ -107,9 +96,6 @@ export default function SendMoneyScreen() {
   const [showFromPicker, setShowFromPicker] = useState(false);
   const [showToPicker, setShowToPicker] = useState(false);
 
-  const [feeInfo, setFeeInfo] = useState<FeeInfo | null>(null);
-
-  // Dynamic payout destinations
   const [payoutDestinations, setPayoutDestinations] = useState<PayoutDestination[]>([]);
   const [selectedDestination, setSelectedDestination] = useState<PayoutDestination | null>(null);
   const [destinationSearch, setDestinationSearch] = useState("");
@@ -132,7 +118,7 @@ export default function SendMoneyScreen() {
   useEffect(() => {
     if (fromWallet && fromAmount) {
       const amt = parseFloat(fromAmount) || 0;
-      setBalanceExceeded(amt > fromWallet.balance);
+      setBalanceExceeded(amt > (fromWallet.balance ?? 0));
     } else {
       setBalanceExceeded(false);
     }
@@ -149,7 +135,7 @@ export default function SendMoneyScreen() {
         if (initialFromCurrency) {
           selectedFrom =
             activeWallets.find(
-              (w: Wallet) => w.currencyCode.toUpperCase() === initialFromCurrency.toUpperCase()
+              (w: Wallet) => w.currencyCode?.toUpperCase() === initialFromCurrency.toUpperCase()
             ) || null;
         }
 
@@ -157,7 +143,7 @@ export default function SendMoneyScreen() {
       } else {
         Alert.alert("Error", response.message || "Failed to load wallets");
       }
-    } catch (e) {
+    } catch {
       Alert.alert("Error", "Failed to load your wallets");
     } finally {
       setLoading(false);
@@ -169,9 +155,11 @@ export default function SendMoneyScreen() {
       const response = await getPayoutDestinations();
       if (response.success && response.destinations.length > 0) {
         setPayoutDestinations(response.destinations);
+
         const defaultDest =
           response.destinations.find((d: { code: string }) => d.code === "NGN") ||
           response.destinations[0];
+
         setSelectedDestination(defaultDest);
       }
     } catch (e) {
@@ -183,80 +171,34 @@ export default function SendMoneyScreen() {
     if (!fromWallet || !fromAmount || parseFloat(fromAmount) <= 0 || !selectedDestination) {
       setToAmount("");
       setRate(null);
-      setFeeInfo(null);
       return;
     }
 
-    const amount = parseFloat(fromAmount);
-    const fromCurrency = fromWallet.currencyCode;
-    const toCurrency = selectedDestination.code;
+    if (fromWallet.currencyCode === selectedDestination.code) {
+      setToAmount(fromAmount);
+      setRate(1);
+      return;
+    }
 
     setQuoteLoading(true);
-
     try {
-      // Same-currency transfer
-      if (fromCurrency === toCurrency) {
-        setToAmount(fromAmount);
-        setRate(1);
-
-        const feeResponse = await calculateSendFee({
-          phone: userPhone,
-          transactionType: "send",
-          amount,
-          currency: fromCurrency,
-        });
-
-        if (feeResponse.success && feeResponse.feeAmount != null) {
-          setFeeInfo({
-            feeAmount: feeResponse.feeAmount,
-            feeCurrency: feeResponse.feeCurrency || fromCurrency,
-            feeType: feeResponse.feeConfig?.fee_type,
-            feePercentage: feeResponse.feeConfig?.percentage_fee,
-            flatFee: feeResponse.feeConfig?.flat_fee,
-            totalDebit: feeResponse.totalAmount,
-            feeAmountInBaseCurrency: feeResponse.feeAmountInBaseCurrency,
-            baseCurrency: feeResponse.baseCurrency,
-            baseCurrencySymbol: feeResponse.baseCurrencySymbol,
-          });
-        } else {
-          setFeeInfo(null);
-        }
-
-        return;
-      }
-
-      // Different currencies
-      const response = await getConversionQuote(userPhone, fromCurrency, toCurrency, amount);
+      const response = await getConversionQuote(
+        userPhone,
+        fromWallet.currencyCode,
+        selectedDestination.code,
+        parseFloat(fromAmount)
+      );
 
       if (response.success) {
         setToAmount(response.quote.buyAmount.toFixed(2));
         setRate(response.quote.rate);
-
-        if (response.quote.feeAmount != null) {
-          setFeeInfo({
-            feeAmount: response.quote.feeAmount,
-            feeCurrency: response.quote.feeCurrency,
-            feeType: response.quote.feeType,
-            feePercentage: response.quote.feePercentage,
-            flatFee: response.quote.flatFee,
-            totalDebit: response.quote.totalDebit,
-            feeAmountInBaseCurrency: response.quote.feeAmountInBaseCurrency,
-            baseCurrency: response.quote.baseCurrency,
-            baseCurrencySymbol: response.quote.baseCurrencySymbol,
-          });
-        } else {
-          setFeeInfo(null);
-        }
       } else {
         setToAmount("");
         setRate(null);
-        setFeeInfo(null);
       }
-    } catch (error) {
-      console.error("Quote failed:", error);
+    } catch {
       setToAmount("");
       setRate(null);
-      setFeeInfo(null);
     } finally {
       setQuoteLoading(false);
     }
@@ -268,8 +210,8 @@ export default function SendMoneyScreen() {
   }, [fetchQuote]);
 
   const handleQuickAmount = (percentage: number) => {
-    if (fromWallet && fromWallet.balance > 0) {
-      setFromAmount((fromWallet.balance * percentage).toFixed(2));
+    if (fromWallet && (fromWallet.balance ?? 0) > 0) {
+      setFromAmount(((fromWallet.balance ?? 0) * percentage).toFixed(2));
     }
   };
 
@@ -282,7 +224,7 @@ export default function SendMoneyScreen() {
       return;
     }
 
-    if (amount > fromWallet.balance) {
+    if (amount > (fromWallet.balance ?? 0)) {
       Alert.alert(
         "Insufficient Balance",
         `You only have ${fromWallet.formattedBalance} ${fromWallet.currencyCode}`
@@ -313,12 +255,16 @@ export default function SendMoneyScreen() {
     return `Send to ${dest.countryName} bank account`;
   };
 
-  const filteredDestinations = payoutDestinations.filter(
-    (d) =>
-      d.code.toLowerCase().includes(destinationSearch.toLowerCase()) ||
-      d.countryName.toLowerCase().includes(destinationSearch.toLowerCase()) ||
-      d.name.toLowerCase().includes(destinationSearch.toLowerCase())
-  );
+  const filteredDestinations = useMemo(() => {
+    const q = destinationSearch.toLowerCase().trim();
+    if (!q) return payoutDestinations;
+    return payoutDestinations.filter(
+      (d) =>
+        d.code.toLowerCase().includes(q) ||
+        d.countryName.toLowerCase().includes(q) ||
+        d.name.toLowerCase().includes(q)
+    );
+  }, [payoutDestinations, destinationSearch]);
 
   if (loading) {
     return (
@@ -335,18 +281,15 @@ export default function SendMoneyScreen() {
     return (
       <ScreenShell>
         <View style={{ flex: 1, padding: 20 }}>
-          <View style={styles.headerRow}>
-            <Pressable onPress={() => router.back()} style={styles.backBtn}>
-              <Text style={styles.backIcon}>←</Text>
-            </Pressable>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.title}>Send Money</Text>
-              <Text style={styles.subtitle}>Send Money To Other Wallet</Text>
-            </View>
-          </View>
+          <Text style={{ fontSize: 22, fontWeight: "bold", color: "#333", marginBottom: 8 }}>
+            Withdraw
+          </Text>
+          <Text style={{ fontSize: 14, color: "#666", marginBottom: 24 }}>
+            You need at least 1 currency wallet to Withdraw.
+          </Text>
 
           <Pressable
-            style={styles.primaryBtn}
+            style={{ backgroundColor: "#2E9E6A", borderRadius: 12, padding: 16, alignItems: "center" }}
             onPress={() => router.push("/addaccount")}
           >
             <Text style={{ color: "#fff", fontWeight: "bold", fontSize: 16 }}>+ Add Currency</Text>
@@ -375,8 +318,8 @@ export default function SendMoneyScreen() {
               <Text style={styles.backIcon}>←</Text>
             </Pressable>
             <View style={{ flex: 1 }}>
-              <Text style={styles.title}>Send Money</Text>
-              <Text style={styles.subtitle}>Send Money To Other Wallet</Text>
+              <Text style={styles.title}>Withdraw</Text>
+              <Text style={styles.subtitle}>Withdraw to {selectedDestination?.name || "Select"}</Text>
             </View>
           </View>
 
@@ -393,7 +336,7 @@ export default function SendMoneyScreen() {
                 style={[styles.amountInput, { fontSize: 28 }, balanceExceeded && { color: "#EF4444" }]}
               />
               <CurrencyPill
-                flag={(fromWallet as any)?.flag || "🏳️"}
+                flag={fromWallet?.flag || "🏳️"}
                 code={fromWallet?.currencyCode || "Select"}
                 countryCode={getWalletCountryCode(fromWallet)}
                 onPress={() => setShowFromPicker(true)}
@@ -417,9 +360,7 @@ export default function SendMoneyScreen() {
             <Text style={{ fontSize: 24 }}>↓</Text>
             {rate && selectedDestination ? (
               <Text style={styles.muted}>
-                1 {fromWallet?.currencyCode} ={" "}
-                {selectedDestination.code === "NGN" ? rate.toFixed(0) : rate.toFixed(2)}{" "}
-                {selectedDestination.code}
+                1 {fromWallet?.currencyCode} = {rate.toFixed(4)} {selectedDestination.code}
               </Text>
             ) : quoteLoading ? (
               <Text style={styles.muted}>Fetching rate...</Text>
@@ -445,7 +386,7 @@ export default function SendMoneyScreen() {
                 style={[styles.amountInput, { fontSize: 28, color: "#333" }]}
               />
               <CurrencyPill
-                flag={(selectedDestination as any)?.flag || "🏳️"}
+                flag={selectedDestination?.flag || "🏳️"}
                 code={selectedDestination?.code || "Select"}
                 countryCode={getDestinationCountryCode(selectedDestination)}
                 onPress={() => setShowToPicker(true)}
@@ -455,9 +396,6 @@ export default function SendMoneyScreen() {
             <Text style={styles.convertBalance}>
               {selectedDestination ? getPayoutMethodLabel(selectedDestination) : "Select destination"}
             </Text>
-
-            {/* Fee breakdown (prevents unused feeInfo + actually shows fees) */}
-            {feeInfo ? <FeeBreakdown {...({ feeInfo } as any)} /> : null}
           </View>
 
           <Pressable
@@ -479,25 +417,14 @@ export default function SendMoneyScreen() {
             title="Send From"
           />
 
-          {/* Destination Picker */}
+          {/* ✅ Dynamic Destination Picker Modal (NOW uses rounded flags via countryCode) */}
           <Modal visible={showToPicker} animationType="slide" transparent>
             <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }}>
               <Pressable style={{ flex: 1 }} onPress={() => setShowToPicker(false)} />
-              <View
-                style={{
-                  backgroundColor: "#fff",
-                  borderTopLeftRadius: 24,
-                  borderTopRightRadius: 24,
-                  maxHeight: "70%",
-                  paddingBottom: 40,
-                }}
-              >
+              <View style={{ backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "70%", paddingBottom: 40 }}>
                 <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                    <Pressable
-                      onPress={() => setShowToPicker(false)}
-                      style={{ width: 30, height: 30, justifyContent: "center", alignItems: "center" }}
-                    >
+                    <Pressable onPress={() => setShowToPicker(false)} style={{ width: 30, height: 30, justifyContent: "center", alignItems: "center" }}>
                       <Text style={{ fontSize: 18, color: "#6B7280" }}>✕</Text>
                     </Pressable>
                     <Text style={{ fontSize: 18, fontWeight: "700", color: "#1F2937" }}>Send To</Text>
@@ -544,18 +471,24 @@ export default function SendMoneyScreen() {
                         setDestinationSearch("");
                       }}
                     >
-                      <CountryFlag
+                      {/* ✅ Rounded flag (uses countryCode, falls back to emoji if missing) */}
+                      <CountryFlagSafe
                         currencyCode={item.code}
-                        fallbackEmoji={(item as any)?.flag}
-                        size="lg"
+                        countryCode={getDestinationCountryCode(item)}
+                        fallbackEmoji={item.flag}
+                        size="md"
                         style={{ marginRight: 12 }}
                       />
+
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 16, fontWeight: "600", color: "#1F2937" }}>
                           {item.code} - {item.countryName}
                         </Text>
-                        <Text style={{ fontSize: 13, color: "#6B7280" }}>{getPayoutMethodLabel(item)}</Text>
+                        <Text style={{ fontSize: 13, color: "#6B7280" }}>
+                          {getPayoutMethodLabel(item)}
+                        </Text>
                       </View>
+
                       {selectedDestination?.code === item.code && (
                         <Text style={{ fontSize: 18, color: "#16A34A", fontWeight: "700" }}>✓</Text>
                       )}

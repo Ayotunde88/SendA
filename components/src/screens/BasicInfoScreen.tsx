@@ -208,13 +208,10 @@ export default function BasicInfoScreen() {
 
         <Pressable
           style={canContinue && !loading ? styles.primaryBtn : styles.disabledBigBtn}
-          // onPress={() => {
-          //   if (!canContinue || loading) return;
-            
-          //   setShowProtectModal(true);
-          // }}
-          onPress={handleProceed}
-          disabled={loading}
+          onPress={() => {
+            if (!canContinue || loading) return;
+            setShowProtectModal(true);
+          }}
         >
           <Text style={canContinue && !loading ? styles.primaryBtnText : styles.disabledBigBtnText}>
             Continue

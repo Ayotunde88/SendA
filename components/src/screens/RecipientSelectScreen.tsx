@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, Pressable, TextInput, ScrollView } from "react-native";
+import { View, Text, Pressable, TextInput, ScrollView, ActivityIndicator } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useLocalSearchParams } from "expo-router";
 import ScreenShell from "../../../components/ScreenShell";
 import { styles } from "../../../theme/styles";
+import { otherstyles } from "../../../theme/otherstyles";
+import { COLORS } from "../../../theme/colors";
 import { isFlutterwaveCurrency, COUNTRY_NAMES, CURRENCY_TO_COUNTRY } from "../../../api/flutterwave";
 
 export interface SavedRecipient {
@@ -81,9 +83,26 @@ export default function RecipientSelectScreen() {
 
   const [search, setSearch] = useState("");
   const [saved, setSaved] = useState<SavedRecipient[]>([]);
+  const [loadingSaved, setLoadingSaved] = useState(true);
 
   useEffect(() => {
-    getSavedRecipients(destCurrency).then(setSaved);
+    let mounted = true;
+    setLoadingSaved(true);
+
+    getSavedRecipients(destCurrency)
+      .then((list) => {
+        if (!mounted) return;
+        // newest first
+        const sorted = [...list].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        setSaved(sorted);
+      })
+      .finally(() => {
+        if (mounted) setLoadingSaved(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
   }, [destCurrency]);
 
   // Redirect CAD to EFT screen
@@ -112,41 +131,47 @@ export default function RecipientSelectScreen() {
   if (!isFlutterwave) {
     return (
       <ScreenShell>
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-          <Text style={{ color: "#666" }}>Loading...</Text>
+        <View style={otherstyles.centerState}>
+          <ActivityIndicator size="small" color={COLORS.primary} />
+          <Text style={otherstyles.centerStateText}>Loading…</Text>
         </View>
       </ScreenShell>
     );
   }
 
   return (
-    <ScreenShell>
-      <View style={styles.recipientListContainer}>
-        <View style={styles.recipientListHeaderRow}>
-          <Pressable onPress={() => router.back()} style={styles.recipientListBackBtn}>
-            <Text style={styles.recipientListBackIcon}>←</Text>
+    <ScreenShell padded={false}>
+      <View style={otherstyles.recipientSelectContainer}>
+        {/* Header */}
+        <View style={otherstyles.confirmHeader}>
+          <Pressable onPress={() => router.back()} style={otherstyles.backBtn}>
+            <Text style={otherstyles.backIcon}>←</Text>
           </Pressable>
 
-          <Text style={styles.recipientListTitle}>Send to {countryName}</Text>
-
-          <View style={{ flex: 1 }} />
-
-          <View style={styles.recipientListHelpCircle}>
-            <Text style={styles.recipientListHelpText}>?</Text>
+          <View style={otherstyles.confirmHeaderCenter}>
+            <Text style={otherstyles.confirmTitle}>Recipients</Text>
+            <Text style={otherstyles.confirmSubtitle}>Send to {countryName}</Text>
           </View>
+
+          <Pressable style={styles.helpCircle}>
+            <Text style={styles.helpCircleText}>?</Text>
+          </Pressable>
         </View>
 
-        <View style={styles.recipientListSearchWrap}>
-          <Text style={styles.recipientListSearchIcon}>⌕</Text>
+        {/* Search */}
+        <View style={[styles.inputBox, otherstyles.recipientSelectSearchWrap]}>
+          <Text style={styles.inputIcon}>⌕</Text>
           <TextInput
-            placeholder="Search for a name or account"
+            placeholder="Search name, bank, or account number"
             placeholderTextColor="#9CA3AF"
             value={search}
             onChangeText={setSearch}
-            style={styles.recipientListSearchInput}
+            style={styles.textFieldInput}
+            autoCapitalize="none"
           />
         </View>
 
+        {/* Primary action */}
         <Pressable
           onPress={() =>
             router.push({
@@ -158,56 +183,95 @@ export default function RecipientSelectScreen() {
               } as any,
             })
           }
-          style={styles.recipientListNewRow}
+          style={otherstyles.recipientSelectNewCard}
         >
-          <View style={styles.recipientListNewIconCircle}>
-            <Text style={styles.recipientListNewIconPlus}>+</Text>
+          <View style={otherstyles.recipientSelectNewIconCircle}>
+            <Text style={otherstyles.recipientSelectNewIconPlus}>+</Text>
           </View>
 
-          <Text style={styles.recipientListNewText}>Send to a new {countryName} recipient</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={otherstyles.recipientSelectNewTitle}>New recipient</Text>
+            <Text style={otherstyles.recipientSelectNewSub}>Add a {countryName} bank recipient</Text>
+          </View>
 
-          <View style={{ flex: 1 }} />
-          <Text style={styles.recipientListChevron}>›</Text>
+          <Text style={otherstyles.recipientSelectChevron}>›</Text>
         </Pressable>
 
-        <Text style={styles.recipientListSectionTitle}>Saved {countryName} Recipients</Text>
+        {/* Section title */}
+        <View style={otherstyles.recipientSelectSectionRow}>
+          <Text style={otherstyles.recipientSelectSectionTitle}>Saved recipients</Text>
+          <Text style={otherstyles.recipientSelectSectionCount}>
+            {loadingSaved ? "" : `${filtered.length}`}
+          </Text>
+        </View>
 
-        <ScrollView>
-          {filtered.map((r) => (
-            <Pressable
-              key={r.id}
-              onPress={() =>
-                router.push({
-                  pathname: "/recipientconfirm" as any,
-                  params: {
-                    ...navParams,
-                    recipient: JSON.stringify(r),
-                    mode: "saved",
-                  } as any,
-                })
-              }
-              style={styles.recipientListRow}
-            >
-              <View style={styles.recipientListAvatarCircle}>
-                <Text style={styles.recipientListAvatarText}>{getInitials(r.accountName)}</Text>
-              </View>
+        {/* List */}
+        <ScrollView contentContainerStyle={otherstyles.recipientSelectListContent} showsVerticalScrollIndicator={false}>
+          {loadingSaved ? (
+            <View style={otherstyles.centerState}>
+              <ActivityIndicator size="small" color={COLORS.primary} />
+              <Text style={otherstyles.centerStateText}>Loading recipients…</Text>
+            </View>
+          ) : filtered.length === 0 ? (
+            <View style={otherstyles.recipientSelectEmpty}>
+              <Text style={otherstyles.recipientSelectEmptyIcon}>👥</Text>
+              <Text style={otherstyles.recipientSelectEmptyTitle}>No saved recipients</Text>
+              <Text style={otherstyles.recipientSelectEmptySub}>
+                Add a recipient to send money faster next time.
+              </Text>
 
-              <View style={styles.recipientListRowInfo}>
-                <Text style={styles.recipientListRowName}>{r.accountName}</Text>
-                <Text style={styles.recipientListRowSub}>
-                  {r.bankName}, {r.accountNumber}
-                </Text>
-              </View>
+              <Pressable
+                style={otherstyles.recipientSelectEmptyBtn}
+                onPress={() =>
+                  router.push({
+                    pathname: "/recipientnew" as any,
+                    params: { ...navParams, countryCode, countryName } as any,
+                  })
+                }
+              >
+                <Text style={otherstyles.recipientSelectEmptyBtnText}>Add recipient</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={otherstyles.recipientSelectCard}>
+              {filtered.map((r, idx) => (
+                <View key={r.id}>
+                  <Pressable
+                    onPress={() =>
+                      router.push({
+                        pathname: "/recipientconfirm" as any,
+                        params: {
+                          ...navParams,
+                          recipient: JSON.stringify(r),
+                          mode: "saved",
+                        } as any,
+                      })
+                    }
+                    style={otherstyles.recipientSelectRow}
+                  >
+                    <View style={otherstyles.recipientSelectAvatarCircle}>
+                      <Text style={otherstyles.recipientSelectAvatarText}>{getInitials(r.accountName)}</Text>
+                    </View>
 
-              <Text style={styles.recipientListChevron}>›</Text>
-            </Pressable>
-          ))}
+                    <View style={otherstyles.recipientSelectRowInfo}>
+                      <Text style={otherstyles.recipientSelectRowName} numberOfLines={1}>
+                        {r.accountName}
+                      </Text>
+                      <Text style={otherstyles.recipientSelectRowSub} numberOfLines={1}>
+                        {r.bankName} • {r.accountNumber}
+                      </Text>
+                    </View>
 
-          {filtered.length === 0 && (
-            <Text style={styles.recipientListEmpty}>No saved {countryName} recipients</Text>
+                    <Text style={otherstyles.recipientSelectChevron}>›</Text>
+                  </Pressable>
+
+                  {idx !== filtered.length - 1 && <View style={otherstyles.recipientSelectDivider} />}
+                </View>
+              ))}
+            </View>
           )}
 
-          <View style={styles.recipientListBottomSpacer} />
+          <View style={{ height: 18 }} />
         </ScrollView>
       </View>
     </ScreenShell>

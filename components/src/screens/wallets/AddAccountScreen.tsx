@@ -5,6 +5,7 @@ import { styles } from "../../../../theme/styles";
 import { getPublicCurrencies, createCurrencyAccount, getCountries, saveBaseCurrency } from "@/api/config";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
+import CountryFlag from "../../../../components/CountryFlag";
 
 interface Currency {
   countryCode: string;
@@ -17,24 +18,28 @@ interface Currency {
 }
 
 interface CurrencyRowProps {
-  flag: string;
+  currencyCode: string;
+  countryCode?: string;
   title: string;
   subtitle: string;
   onPress: () => void;
-  symbol?: string;
-  code?: string;
   disabled?: boolean;
-
 }
 
-function CurrencyRow({ flag, title, subtitle, onPress, disabled }: CurrencyRowProps) {
+function CurrencyRow({ currencyCode, countryCode, title, subtitle, onPress, disabled }: CurrencyRowProps) {
   return (
     <Pressable 
       style={[styles.addAccRow, disabled && { opacity: 0.5, backgroundColor: '#f3f4f6' }]} 
       onPress={onPress}
     >
-      <Text style={[styles.addAccFlag, disabled && { opacity: 0.6 }]}>{flag}</Text>
-      <View style={{ flex: 1 }}>
+      <View style={disabled ? { opacity: 0.6 } : undefined}>
+        <CountryFlag 
+          currencyCode={currencyCode} 
+          countryCode={countryCode} 
+          size="md" 
+        />
+      </View>
+      <View style={{ flex: 1, marginLeft: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Text style={[styles.addAccTitle, disabled && { color: '#9ca3af' }]}>{title}</Text>
           {disabled && (
@@ -134,19 +139,19 @@ export default function AddAccountScreen() {
     }
   }, [loading, userCurrencyEnabled, baseCurrency]);
 
-  const handleSelectBaseCurrency = async (currencyCode: string) => {
-    setBaseCurrency(currencyCode as any);
+  const handleSelectBaseCurrency = async (currency: Currency) => {
+    setBaseCurrency(currency);
     setShowBaseCurrencyModal(false);
     
     // Persist to AsyncStorage
-    await AsyncStorage.setItem('base_currency', currencyCode);
+    await AsyncStorage.setItem('base_currency', currency.code);
     
     // Save to backend
     try {
       const token = await AsyncStorage.getItem('auth_token');
       const phone = await AsyncStorage.getItem('user_phone');
       if (token && phone) {
-        await saveBaseCurrency(phone, currencyCode, token);
+        await saveBaseCurrency(phone, currency.code, token);
       }
     } catch (error) {
       console.log('Failed to save base currency to backend:', error);
@@ -193,8 +198,7 @@ export default function AddAccountScreen() {
             <Text style={styles.backIcon}>←</Text>
           </Pressable>
           <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Convert Currency</Text>
-            <Text style={styles.subtitle}>Choose a currency you want to hold</Text>
+            <Text style={styles.title}>Add Your Wallet</Text>
           </View>
         </View>
 
@@ -206,16 +210,21 @@ export default function AddAccountScreen() {
             borderRadius: 8, 
             marginTop: 16,
             borderWidth: 1,
-            borderColor: '#22c55e20'
+            borderColor: '#22c55e20',
+            flexDirection: 'row',
+            alignItems: 'center'
           }}>
-            <Text style={{ fontSize: 12, color: '#16a34a', fontWeight: '600' }}>
-              Base Currency: {baseCurrency.flag} {baseCurrency.name}
-            </Text>
-            <Pressable onPress={() => setShowBaseCurrencyModal(true)}>
-              <Text style={{ fontSize: 11, color: '#16a34a', marginTop: 4, textDecorationLine: 'underline' }}>
-                Change base currency
+            <CountryFlag currencyCode={baseCurrency.code} countryCode={baseCurrency.countryCode} size="sm" />
+            <View style={{ marginLeft: 8, flex: 1 }}>
+              <Text style={{ fontSize: 12, color: '#16a34a', fontWeight: '600' }}>
+                Base Currency: {baseCurrency.name}
               </Text>
-            </Pressable>
+              <Pressable onPress={() => setShowBaseCurrencyModal(true)}>
+                <Text style={{ fontSize: 11, color: '#16a34a', marginTop: 2, textDecorationLine: 'underline' }}>
+                  Change base currency
+                </Text>
+              </Pressable>
+            </View>
           </View>
         )}
 
@@ -234,15 +243,16 @@ export default function AddAccountScreen() {
                 <React.Fragment key={currency.code}>
                   {index > 0 && <View style={styles.addAccDivider} />}
                   <CurrencyRow
-                  flag={currency.flag}
-                  title={currency.name}
-                  subtitle={currency.countryName || currency.name}
-                  disabled={currency.enabled === false}
-                  onPress={() => handleCurrencyPress(currency)}
-                />
-              </React.Fragment>
-            ))}
-          </View>
+                    currencyCode={currency.code}
+                    countryCode={currency.countryCode}
+                    title={currency.name}
+                    subtitle={currency.countryName || currency.name}
+                    disabled={currency.enabled === false}
+                    onPress={() => handleCurrencyPress(currency)}
+                  />
+                </React.Fragment>
+              ))}
+            </View>
           </ScrollView>
         )}
       </View>
@@ -291,10 +301,10 @@ export default function AddAccountScreen() {
                     borderBottomWidth: 1,
                     borderBottomColor: '#f3f4f6',
                   }}
-                  onPress={() => handleSelectBaseCurrency(item as any)}
+                  onPress={() => handleSelectBaseCurrency(item)}
                 >
-                  <Text style={{ fontSize: 28, marginRight: 12 }}>{item.flag}</Text>
-                  <View style={{ flex: 1 }}>
+                  <CountryFlag currencyCode={item.code} countryCode={item.countryCode} size="lg" />
+                  <View style={{ flex: 1, marginLeft: 12 }}>
                     <Text style={{ fontSize: 16, fontWeight: '600', color: '#1f2937' }}>
                       {item.name}
                     </Text>

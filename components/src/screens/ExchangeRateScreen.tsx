@@ -14,10 +14,8 @@ import { useRouter } from "expo-router";
 import ScreenShell from "../../ScreenShell";
 import { styles } from "../../../theme/styles";
 import { COLORS } from "../../../theme/colors";
-import { getCountries, getExchangeRates, getUserAccounts, getPublicCurrencies } from "@/api/config";
-import CreateRateAlertSheet from "../../../components/CreateRateAlertSheet";
-
-const CACHED_FLAGS_KEY = "cached_flags_v1";
+import { getCountries, getExchangeRates, getUserAccounts } from "@/api/config";
+import CountryFlag from "../../../components/CountryFlag";
 
 type Country = {
   code: string;
@@ -46,7 +44,9 @@ type DisplayRate = {
 };
 
 function buildPairs(codes: string[]) {
-  const uniq = Array.from(new Set(codes.map((c) => c.toUpperCase().trim()).filter(Boolean)));
+  const uniq = Array.from(
+    new Set(codes.map((c) => c.toUpperCase().trim()).filter(Boolean))
+  );
   const pairs: string[] = [];
   for (const from of uniq) {
     for (const to of uniq) {
@@ -54,6 +54,53 @@ function buildPairs(codes: string[]) {
     }
   }
   return pairs;
+}
+
+const currencyToCountry: Record<string, string> = {
+  USD: "US",
+  AUD: "AU",
+  GBP: "GB",
+  EUR: "EU",
+  CAD: "CA",
+  NGN: "NG",
+};
+
+const fallbackEmoji: Record<string, string> = {
+  USD: "🇺🇸",
+  CAD: "🇨🇦",
+  GBP: "🇬🇧",
+  EUR: "🇪🇺",
+  NGN: "🇳🇬",
+  GHS: "🇬🇭",
+  KES: "🇰🇪",
+  RWF: "🇷🇼",
+  UGX: "🇺🇬",
+  TZS: "🇹🇿",
+  ZMW: "🇿🇲",
+  XOF: "🇸🇳",
+  XAF: "🇨🇲",
+  ZAR: "🇿🇦",
+  EGP: "🇪🇬",
+  MAD: "🇲🇦",
+  AED: "🇦🇪",
+  INR: "🇮🇳",
+  JPY: "🇯🇵",
+  CNY: "🇨🇳",
+  NZD: "🇳🇿",
+  CHF: "🇨🇭",
+  SGD: "🇸🇬",
+  HKD: "🇭🇰",
+  MXN: "🇲🇽",
+  BRL: "🇧🇷",
+};
+
+function resolveFlag(flagsByKey: Record<string, string>, code: string) {
+  const key = (code || "").toUpperCase().trim();
+  if (!key) return "";
+  if (flagsByKey[key]) return flagsByKey[key];
+  const ck = currencyToCountry[key];
+  if (ck && flagsByKey[ck]) return flagsByKey[ck];
+  return fallbackEmoji[key] || "";
 }
 
 export default function ExchangeRatesScreen() {
@@ -72,205 +119,145 @@ export default function ExchangeRatesScreen() {
   const [rates, setRates] = useState<DisplayRate[]>([]);
   const [baseCurrency, setBaseCurrency] = useState<string>("");
 
-  // Rate alert state
-  const [alertSheetOpen, setAlertSheetOpen] = useState(false);
-  const [selectedRate, setSelectedRate] = useState<DisplayRate | null>(null);
-
-  const openAlertSheet = useCallback((rate: DisplayRate) => {
-    setSelectedRate(rate);
-    setAlertSheetOpen(true);
-  }, []);
-
   const getFlagForCurrency = useCallback(
-    (currencyCode?: string) => {
-      const key = (currencyCode || "").toUpperCase().trim();
-
-      const currencyToCountry: Record<string, string> = {
-        USD: "US",
-        AUD: "AU",
-        GBP: "GB",
-        EUR: "EU",
-        CAD: "CA",
-        NGN: "NG",
-      };
-
-      const fallbackEmoji: Record<string, string> = {
-        USD: "🇺🇸",
-        AUD: "🇦🇺",
-        GBP: "🇬🇧",
-        EUR: "🇪🇺",
-        CAD: "🇨🇦",
-        NGN: "🇳🇬",
-      };
-
-      const byCurrency = flagsByKey[key];
-      if (byCurrency) return byCurrency;
-
-      const countryKey = currencyToCountry[key];
-      const byCountry = countryKey ? flagsByKey[countryKey] : "";
-      if (byCountry) return byCountry;
-
-      return fallbackEmoji[key] || "";
-    },
+    (currencyCode?: string) => resolveFlag(flagsByKey, currencyCode || ""),
     [flagsByKey]
   );
 
-  // Load cached flags on mount
-  useEffect(() => {
-    const loadCachedFlags = async () => {
+  const loadData = useCallback(
+    async (isRefresh = false) => {
       try {
-        const cached = await AsyncStorage.getItem(CACHED_FLAGS_KEY);
-        if (cached) {
-          setFlagsByKey(JSON.parse(cached));
-        }
-      } catch (e) {
-        console.log("Failed to load cached flags:", e);
-      }
-    };
-    loadCachedFlags();
-  }, []);
+        // --------- 1) FLAGS + DISABLED MAPS ----------
+        let flagsMap = flagsByKey;
+        let disabledMap = disabledCurrencies;
 
-  const loadData = useCallback(async (isRefresh = false) => {
-    try {
-      // Load flags using 3-tier strategy: currencies API → countries fallback → cache
-      let currentFlagsByKey = flagsByKey;
-      let currentDisabledCurrencies = disabledCurrencies;
+        const shouldLoadFlags = isRefresh || Object.keys(flagsByKey).length === 0;
+        if (shouldLoadFlags) {
+          try {
+            const countries: Country[] = await getCountries();
+            const fm: Record<string, string> = {};
+            const dm: Record<string, true> = {};
 
-      if (!isRefresh || Object.keys(flagsByKey).length === 0) {
-        try {
-          // Parallel fetch - currencies (primary) and countries (fallback)
-          const [currenciesResult, countriesResult] = await Promise.allSettled([
-            getPublicCurrencies(true), // All currencies for complete flag mapping
-            getCountries(),
-          ]);
-
-          const flagsMap: Record<string, string> = {};
-          const disabledMap: Record<string, true> = {};
-
-          // First, populate from currencies endpoint (most accurate for currency codes)
-          if (currenciesResult.status === 'fulfilled') {
-            for (const c of currenciesResult.value || []) {
-              const flag = ((c as any).flag || "").trim();
-              const currencyKey = ((c as any).code || "").toUpperCase().trim();
-              if (currencyKey && flag) flagsMap[currencyKey] = flag;
-              if (currencyKey && !(c as any).enabled) disabledMap[currencyKey] = true;
-            }
-          }
-
-          // Then, fill gaps from countries endpoint
-          if (countriesResult.status === 'fulfilled') {
-            const countriesData = countriesResult.value as Country[];
-            for (const c of countriesData || []) {
+            for (const c of countries || []) {
               const flag = (c.flag || "").trim();
               const cur = (c.currencyCode || "").toUpperCase().trim();
               const code = (c.code || "").toUpperCase().trim();
 
-              // Only add if not already present from currencies
-              if (cur && flag && !flagsMap[cur]) flagsMap[cur] = flag;
-              if (code && flag && !flagsMap[code]) flagsMap[code] = flag;
+              if (cur && flag && !fm[cur]) fm[cur] = flag;
+              if (code && flag && !fm[code]) fm[code] = flag;
 
-              if (cur && c.currencyEnabled === false && !disabledMap[cur]) disabledMap[cur] = true;
-              if (code && c.currencyEnabled === false && !disabledMap[code]) disabledMap[code] = true;
+              if (cur && c.currencyEnabled === false) dm[cur] = true;
+              if (code && c.currencyEnabled === false) dm[code] = true;
             }
-          }
 
-          if (Object.keys(flagsMap).length > 0) {
-            setFlagsByKey(flagsMap);
-            setDisabledCurrencies(disabledMap);
-            currentFlagsByKey = flagsMap;
-            currentDisabledCurrencies = disabledMap;
-            // Cache flags for instant restore
-            AsyncStorage.setItem(CACHED_FLAGS_KEY, JSON.stringify(flagsMap)).catch(() => {});
+            flagsMap = fm;
+            disabledMap = dm;
+
+            setFlagsByKey(fm);
+            setDisabledCurrencies(dm);
+          } catch (e) {
+            console.log("Failed to load flags:", e);
+            // keep existing maps if any
           }
-        } catch (e) {
-          console.log("Failed to load flags:", e);
         }
-      }
 
-      // Load accounts
-      const phone = await AsyncStorage.getItem("user_phone");
-      let userAccounts: UserAccount[] = [];
+        // --------- 2) ACCOUNTS ----------
+        const phone = await AsyncStorage.getItem("user_phone");
+        let userAccounts: UserAccount[] = [];
 
-      if (phone) {
-        try {
-          const res = await getUserAccounts(phone, true);
-          if (res?.success && Array.isArray(res.accounts)) {
-            userAccounts = res.accounts;
-            setAccounts(userAccounts);
+        if (phone) {
+          try {
+            const res = await getUserAccounts(phone, true);
+            if (res?.success && Array.isArray(res.accounts)) {
+              userAccounts = res.accounts.map((a: any) => ({
+                ...a,
+                currencyCode: String(a.currencyCode || a.currency_code || "").toUpperCase().trim(),
+              }));
+              setAccounts(userAccounts);
+            } else {
+              // keep existing accounts if fetch fails
+              userAccounts = accounts;
+            }
+          } catch (e) {
+            console.log("Failed to load accounts:", e);
+            userAccounts = accounts;
           }
-        } catch (e) {
-          console.log("Failed to load accounts:", e);
+        } else {
+          userAccounts = accounts;
         }
+
+        // --------- 3) ENABLED CURRENCY CODES ----------
+        const enabled = userAccounts
+          .map((a) => (a.currencyCode || "").toUpperCase().trim())
+          .filter(Boolean)
+          .filter((c) => !disabledMap[c]);
+
+        // choose default base currency once
+        if (!baseCurrency && enabled.length > 0) {
+          setBaseCurrency(enabled[0]);
+        }
+
+        const pairs = buildPairs(enabled);
+
+        if (pairs.length === 0) {
+          setRates([]);
+          return;
+        }
+
+        // --------- 4) RATES ----------
+        const res = await getExchangeRates(pairs.join(","));
+
+        if (res?.success && Array.isArray(res.rates)) {
+          const formatted: DisplayRate[] = res.rates
+            .map((r: any) => {
+              const from = String(r.fromCurrency || r.buy_currency || "").toUpperCase().trim();
+              const to = String(r.toCurrency || r.sell_currency || "").toUpperCase().trim();
+              const numericRate = Number.parseFloat(r.rate || r.core_rate);
+
+              if (!from || !to || !Number.isFinite(numericRate)) return null;
+
+              const changeVal =
+                r.change ??
+                (r.changePercent != null
+                  ? `${Number(r.changePercent) >= 0 ? "+" : ""}${Number(r.changePercent).toFixed(2)}%`
+                  : "+0.0%");
+
+              return {
+                from,
+                to,
+                fromFlag: resolveFlag(flagsMap, from),
+                toFlag: resolveFlag(flagsMap, to),
+                numericRate,
+                rate: numericRate.toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 6,
+                }),
+                change: changeVal,
+              } as DisplayRate;
+            })
+            .filter(Boolean) as DisplayRate[];
+
+          setRates(formatted);
+        } else {
+          setRates([]);
+        }
+      } catch (e) {
+        console.log("Failed to load exchange rates:", e);
+      } finally {
+        setInitialLoading(false);
+        setRefreshing(false);
       }
+    },
+    // ✅ keep deps minimal but correct
+    [accounts, baseCurrency, disabledCurrencies, flagsByKey]
+  );
 
-      // Load rates
-      const enabled = userAccounts
-        .map((a) => (a.currencyCode || "").toUpperCase().trim())
-        .filter(Boolean)
-        .filter((c) => !currentDisabledCurrencies[c]);
-
-      const pairs = buildPairs(enabled);
-
-      if (pairs.length === 0) {
-        setRates([]);
-        return;
-      }
-
-      const res = await getExchangeRates(pairs.join(","));
-      if (res?.success && Array.isArray(res.rates)) {
-        const formatted: DisplayRate[] = res.rates
-          .map((r: any) => {
-            const from = (r.fromCurrency || r.buy_currency || "").toUpperCase().trim();
-            const to = (r.toCurrency || r.sell_currency || "").toUpperCase().trim();
-            const numericRate = parseFloat(r.rate || r.core_rate || 0);
-
-            if (!from || !to || !Number.isFinite(numericRate)) return null;
-
-            // Use local flag lookup
-            const getFlag = (code: string) => {
-              const key = code.toUpperCase().trim();
-              const currencyToCountry: Record<string, string> = { USD: "US", AUD: "AU", GBP: "GB", EUR: "EU", CAD: "CA", NGN: "NG" };
-              const fallbackEmoji: Record<string, string> = { USD: "🇺🇸", AUD: "🇦🇺", GBP: "🇬🇧", EUR: "🇪🇺", CAD: "🇨🇦", NGN: "🇳🇬" };
-              return currentFlagsByKey[key] || currentFlagsByKey[currencyToCountry[key]] || fallbackEmoji[key] || "";
-            };
-
-            return {
-              from,
-              to,
-              fromFlag: getFlag(from),
-              toFlag: getFlag(to),
-              numericRate,
-              rate: numericRate.toLocaleString("en-US", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 6,
-              }),
-              change: r.change || "+0.0%",
-            } as DisplayRate;
-          })
-          .filter(Boolean) as DisplayRate[];
-
-        const defaultBase = enabled[0] || "";
-        if (!baseCurrency && defaultBase) setBaseCurrency(defaultBase);
-
-        setRates(formatted);
-      } else {
-        setRates([]);
-      }
-    } catch (e) {
-      console.log("Failed to load exchange rates:", e);
-    } finally {
-      setInitialLoading(false);
-      setRefreshing(false);
-    }
-  }, [baseCurrency, flagsByKey, disabledCurrencies]);
-
-  // Initial load only
+  // Initial load
   useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      loadData(false);
-    }
-  }, []);
+    if (!isInitialMount.current) return;
+    isInitialMount.current = false;
+    loadData(false);
+  }, [loadData]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -333,7 +320,7 @@ export default function ExchangeRatesScreen() {
               onChangeText={setQuery}
               placeholder="Search currency pair (e.g. USD, CAD, USD→NGN)"
               placeholderTextColor="#9CA3AF"
-              style={styles.searchInput}
+              
               autoCapitalize="characters"
             />
           </View>
@@ -363,7 +350,7 @@ export default function ExchangeRatesScreen() {
                       alignItems: "center",
                     }}
                   >
-                    <Text style={{ marginRight: 6 }}>{getFlagForCurrency(c)}</Text>
+                    <CountryFlag currencyCode={c} size="sm" style={{ marginRight: 6 }} />
                     <Text style={{ fontWeight: "900", color: active ? "#19955f" : "#111827", fontSize: 12 }}>
                       {c}
                     </Text>
@@ -409,57 +396,36 @@ export default function ExchangeRatesScreen() {
               visibleRates.map((x, idx) => {
                 const isPositive = String(x.change || "").trim().startsWith("+");
                 return (
-                  <View
+                  <Pressable
                     key={`${x.from}-${x.to}-${idx}`}
                     style={[styles.fxRow, idx === visibleRates.length - 1 ? { paddingBottom: 14 } : null]}
+                    onPress={() => router.push(`/convert?from=${x.from}&to=${x.to}`)}
                   >
-                    <Pressable
-                      style={{ flex: 1, flexDirection: "row", alignItems: "center" }}
-                      onPress={() => router.push(`/convert?from=${x.from}&to=${x.to}`)}
-                    >
-                      <View style={styles.fxLeft}>
-                        <View style={styles.fxFlags}>
-                          <Text style={styles.fxFlag}>{x.fromFlag}</Text>
-                          <Text style={styles.fxFlag}>{x.toFlag}</Text>
-                        </View>
-
-                        <View>
-                          <Text style={styles.fxPair}>
-                            {x.from} → {x.to}
-                          </Text>
-                          <Text style={styles.fxPairSub}>
-                            1 {x.from} = {x.rate} {x.to}
-                          </Text>
-                        </View>
+                    <View style={styles.fxLeft}>
+                      <View style={styles.fxFlags}>
+                        <CountryFlag currencyCode={x.from} size="md" />
+                        <CountryFlag currencyCode={x.to} size="md" style={{ marginLeft: -8 }} />
                       </View>
 
-                      <View style={styles.fxRight}>
-                        <View style={[styles.fxChangePill, isPositive ? styles.fxUp : styles.fxDown]}>
-                          <Text style={[styles.fxChangeText, isPositive ? styles.fxUpText : styles.fxDownText]}>
-                            {x.change || "+0.0%"}
-                          </Text>
-                        </View>
+                      <View>
+                        <Text style={styles.fxPair}>
+                          {x.from} → {x.to}
+                        </Text>
+                        <Text style={styles.fxPairSub}>
+                          1 {x.from} = {x.rate} {x.to}
+                        </Text>
                       </View>
-                    </Pressable>
+                    </View>
 
-                    {/* Alert Bell Button */}
-                    <Pressable
-                      onPress={() => openAlertSheet(x)}
-                      style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: 18,
-                        backgroundColor: "rgba(25,149,95,0.1)",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        marginLeft: 8,
-                      }}
-                    >
-                      <Text style={{ fontSize: 16 }}>🔔</Text>
-                    </Pressable>
-
-                    <Text style={styles.fxChevron}>›</Text>
-                  </View>
+                    <View style={styles.fxRight}>
+                      <View style={[styles.fxChangePill, isPositive ? styles.fxUp : styles.fxDown]}>
+                        <Text style={[styles.fxChangeText, isPositive ? styles.fxUpText : styles.fxDownText]}>
+                          {x.change || "+0.0%"}
+                        </Text>
+                      </View>
+                      <Text style={styles.fxChevron}>›</Text>
+                    </View>
+                  </Pressable>
                 );
               })
             )}
@@ -472,51 +438,12 @@ export default function ExchangeRatesScreen() {
           </View>
 
           {/* Quick action */}
-          <View style={{ paddingHorizontal: 16, marginTop: 14, gap: 10 }}>
+          <View style={{ paddingHorizontal: 16, marginTop: 14 }}>
             <Pressable onPress={() => router.push("/convert")} style={styles.primaryBtn}>
               <Text style={{ color: "#fff", fontWeight: "900", fontSize: 16 }}>Convert currency</Text>
             </Pressable>
-
-            <Pressable
-              onPress={() => router.push("/ratealerts")}
-              style={{
-                backgroundColor: "#fff",
-                paddingVertical: 14,
-                borderRadius: 12,
-                alignItems: "center",
-                borderWidth: 1.5,
-                borderColor: COLORS.primary,
-                flexDirection: "row",
-                justifyContent: "center",
-                gap: 8,
-              }}
-            >
-              <Text style={{ fontSize: 16 }}>🔔</Text>
-              <Text style={{ color: COLORS.primary, fontWeight: "900", fontSize: 16 }}>
-                Manage Rate Alerts
-              </Text>
-            </Pressable>
           </View>
         </ScrollView>
-
-        {/* Rate Alert Sheet */}
-        {selectedRate && (
-          <CreateRateAlertSheet
-            open={alertSheetOpen}
-            onClose={() => {
-              setAlertSheetOpen(false);
-              setSelectedRate(null);
-            }}
-            fromCurrency={selectedRate.from}
-            toCurrency={selectedRate.to}
-            currentRate={selectedRate.numericRate}
-            fromFlag={selectedRate.fromFlag}
-            toFlag={selectedRate.toFlag}
-            onSuccess={() => {
-              // Optionally refresh or show toast
-            }}
-          />
-        )}
       </ScreenShell>
     </SafeAreaView>
   );

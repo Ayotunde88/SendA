@@ -4,7 +4,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createRateAlert } from "@/api/config";
 import BottomSheet from "./BottomSheet";
 import { COLORS } from "../theme/colors";
-import { styles } from "@/theme/styles";
 
 type Props = {
   open: boolean;
@@ -208,14 +207,13 @@ export default function CreateRateAlertSheet({
       <Pressable
         onPress={handleCreate}
         disabled={loading}
-        style={styles.primaryBtn}
-        // style={{
-        //   backgroundColor: COLORS.green,
-        //   paddingVertical: 16,
-        //   borderRadius: 999,
-        //   alignItems: "center",
-        //   opacity: loading ? 0.7 : 1,
-        // }}
+        style={{
+          backgroundColor: COLORS.primary,
+          paddingVertical: 16,
+          borderRadius: 12,
+          alignItems: "center",
+          opacity: loading ? 0.7 : 1,
+        }}
       >
         {loading ? (
           <ActivityIndicator color="#fff" />

@@ -18,5 +18,9 @@ primary: "#2FBF71",
   textSecondary: "#9CA3AF",
   overlay: "rgba(0, 0, 0, 0.5)",
   borderLight: "#E2DDD8",
+  greenLight: "#A8E6CE",
+  errorLight: "#FECACA",
+  bgTertiary:"",
+  accent: "#FF4081"
 
 };

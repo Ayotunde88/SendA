@@ -4,7 +4,6 @@ import { strictAPICall, TransactionError, ensureNetworkOrThrow } from "../utils/
 
 
 
-
 export const API_BASE_URL =
   Platform.OS === "android"
     ? process.env.EXPO_PUBLIC_API_BASE_URL_ANDROID
@@ -63,6 +62,22 @@ async function saveCachedAccounts(accounts: any[]) {
     console.log("[cache] saveCachedAccounts failed:", e);
   }
 }
+export const checkEmailVerified = async (phone: string): Promise<{
+  emailVerified: boolean;
+  emailVerifiedAt: string | null;
+  email: string | null;
+}> => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/users/email-verified?phone=${encodeURIComponent(phone)}`);
+    if (!res.ok) {
+      return { emailVerified: false, emailVerifiedAt: null, email: null };
+    }
+    return res.json();
+  } catch (error) {
+    console.error('Failed to check email verification status:', error);
+    return { emailVerified: false, emailVerifiedAt: null, email: null };
+  }
+};
 
 /**
  * Merge API accounts with cached accounts:
@@ -361,6 +376,9 @@ export interface Country {
   dialCode?: string;
 }
 
+
+
+
 // Updated getCountries function
 // Cache for countries to avoid refetching on every poll
 let countriesCache: { data: Country[]; timestamp: number } | null = null;
@@ -502,7 +520,7 @@ export const sendEmailOtp = async (email: string) => {
   return res.json();
 };
 
-export const verifyEmailOtp = async (email: string, code: string, phone?: string) => {
+export const verifyEmailOtp = async (email: string, code: string, phone: string) => {
   const res = await fetch(`${API_BASE_URL}/otp/email/verify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -586,6 +604,8 @@ export async function getPublicCurrencies(includeAll = false): Promise<Currency[
   return res.json();
 }
 
+
+
 export const createCurrencyAccount = async (
   userPhone: string,
   currencyCode: string,
@@ -607,121 +627,103 @@ export const createCurrencyAccount = async (
 const balanceCache: Record<string, { balance: number; timestamp: number }> = {};
 const BALANCE_CACHE_MAX_AGE_MS = 60000; // 1 minute
 
+
+
+
+function normalizeCurrency(code: any) {
+  return String(code || "").toUpperCase().trim();
+}
+
+function isValidNumber(n: any) {
+  return typeof n === "number" && Number.isFinite(n);
+}
+
+/**
+ * Merge API snapshot with cached snapshot:
+ * - If API has a valid number balance -> use it
+ * - If API balance is missing/null/invalid -> keep cached balance (prevents 0.00 flicker)
+ */
+export function mergeAccountsWithCache(apiAccounts: any[], cachedAccounts: any[]) {
+  const cachedMap = new Map<string, any>();
+  for (const c of cachedAccounts || []) {
+    const key = normalizeCurrency(c.currencyCode || c.currency_code);
+    if (key) cachedMap.set(key, c);
+  }
+
+  const merged = (apiAccounts || []).map((a) => {
+    const key = normalizeCurrency(a.currencyCode || a.currency_code);
+    const old = cachedMap.get(key);
+
+    const apiBal = a.balance;
+    const apiHasBalance = isValidNumber(apiBal);
+
+    return {
+      ...old,
+      ...a,
+      currencyCode: key,
+      balance: apiHasBalance ? apiBal : (old?.balance ?? null),
+    };
+  });
+
+  // Keep cached-only accounts if API didn’t return them (rare but happens)
+  for (const [key, old] of cachedMap.entries()) {
+    if (!merged.some((m) => normalizeCurrency(m.currencyCode) === key)) {
+      merged.push(old);
+    }
+  }
+
+  return merged;
+}
+
+
+
 export const getUserAccounts = async (
   phone: string,
   includeBalances: boolean = false
-): Promise<{
-  success: boolean;
-  accounts?: any[];
-  error?: string;
-  source?: "api" | "cache";
-  fetchedAt?: number;
-}> => {
-  const cached = await loadCachedAccounts();
-
+): Promise<{ success: boolean; accounts?: any[]; error?: string; source?: "api" | "cache"; fetchedAt?: number }> => {
   try {
-    const url = `${API_BASE_URL}/currencycloud/user-accounts/${encodeURIComponent(phone)}${
-      includeBalances ? "?includeBalances=true" : ""
-    }`;
+    const cached = await loadCachedAccounts();
 
-    const data = await strictAPICall<any>(url, {
-      method: "GET",
-      headers: { "Content-Type": "application/json" },
-      timeoutMs: 15000,
-      context: "Fetch user accounts",
-      validateSuccess: false,
-    });
+    const url = `${API_BASE_URL}/currencycloud/user-accounts/${encodeURIComponent(phone)}${includeBalances ? "?includeBalances=true" : ""}`;
+    const response = await fetchWithTimeout(url, {}, 15000);
 
-    // Defensive normalization
-    const apiAccounts = Array.isArray(data?.accounts)
-      ? data.accounts.map((acc: any) => ({
-          ...acc,
-          currencyCode: String(acc.currencyCode || acc.currency_code || "")
-            .toUpperCase()
-            .trim(),
-        }))
-      : [];
-
-    // If API returns nothing useful → fallback to cache
-    if (apiAccounts.length === 0) {
-      if (cached.length > 0) {
-        return {
-          success: true,
-          accounts: cached,
-          source: "cache",
-          fetchedAt: Date.now(),
-        };
-      }
-
-      return {
-        success: false,
-        accounts: [],
-        error: "No accounts returned",
-      };
+    if (!response.ok) {
+      // ✅ return cache if exists
+      if (cached.length > 0) return { success: true, accounts: cached, source: "cache", fetchedAt: Date.now() };
+      return { success: false, accounts: [], error: `HTTP ${response.status}` };
     }
 
-    // ✅ Merge API + cache to prevent flicker
-    const merged = mergeWithCache(apiAccounts, cached);
+    const text = await response.text();
+    if (!text || text.trim() === "") {
+      if (cached.length > 0) return { success: true, accounts: cached, source: "cache", fetchedAt: Date.now() };
+      return { success: false, accounts: [], error: "Empty response" };
+    }
 
-    // ✅ Persist snapshot for offline + wallet screens
+    const data = JSON.parse(text);
+    const apiAccounts = (data.accounts || []).map((acc: any) => ({
+    ...acc,
+    currencyCode: String(acc.currencyCode || acc.currency_code || "").toUpperCase().trim(),
+    // IMPORTANT: do NOT coerce missing balance to 0
+    balance:
+      typeof acc.balance === "number" && Number.isFinite(acc.balance)
+        ? acc.balance
+        : null,
+  }));
+
+  const merged = mergeAccountsWithCache(apiAccounts, cached);
+
+
+    // ✅ save merged snapshot for Home + Wallet
     await saveCachedAccounts(merged);
 
-    return {
-      success: true,
-      accounts: merged,
-      source: "api",
-      fetchedAt: Date.now(),
-    };
-  } catch (err) {
-    // 🚫 NO console.error spam
-    if (err instanceof TransactionError) {
-      // Network / timeout / offline → fallback silently
-      if (cached.length > 0) {
-        return {
-          success: true,
-          accounts: cached,
-          source: "cache",
-          fetchedAt: Date.now(),
-        };
-      }
-
-      return {
-        success: false,
-        error: err.message,
-      };
-    }
-
-    // Unknown error (very rare)
-    if (cached.length > 0) {
-      return {
-        success: true,
-        accounts: cached,
-        source: "cache",
-        fetchedAt: Date.now(),
-      };
-    }
-
-    return {
-      success: false,
-      error: "Unable to load accounts",
-    };
-  }
-};
-
-export const checkEmailVerified = async (phone: string): Promise<{
-  emailVerified: boolean;
-  emailVerifiedAt: string | null;
-  email: string | null;
-}> => {
-  try {
-    const res = await fetch(`${API_BASE_URL}/users/email-verified?phone=${encodeURIComponent(phone)}`);
-    if (!res.ok) {
-      return { emailVerified: false, emailVerifiedAt: null, email: null };
-    }
-    return res.json();
+    return { success: true, accounts: merged, source: "api", fetchedAt: Date.now() };
   } catch (error) {
-    console.error('Failed to check email verification status:', error);
-    return { emailVerified: false, emailVerifiedAt: null, email: null };
+    console.error("Get user accounts error:", error);
+    const cached = await loadCachedAccounts();
+    if (cached.length > 0) return { success: true, accounts: cached, source: "cache", fetchedAt: Date.now() };
+    
+    return { success: false, error: "Network error" };
+
   }
 };
 
@@ -758,7 +760,7 @@ export async function getExchangeRates(pairs: string): Promise<{
 
 
 // Cache for total balance to prevent flicker during transient failures
-let totalBalanceCache: { data: any; timestamp: number } | null = null;
+const totalBalanceCacheByPhone: Record<string, { data: any; timestamp: number }> = {};
 const TOTAL_BALANCE_CACHE_MAX_AGE_MS = 30000; // 30 seconds
 
 // Short-lived quote cache + in-flight de-duplication to prevent rate-limits
@@ -773,54 +775,58 @@ export const getTotalBalance = async (phone: string): Promise<{
   homeCurrencySymbol?: string;
   error?: string;
 }> => {
+  const key = String(phone || "");
+  const now = Date.now();
+  const cachedEntry = key ? totalBalanceCacheByPhone[key] : undefined;
+
   try {
     const response = await fetchWithTimeout(
       `${API_BASE_URL}/currencycloud/user-total-balance?phone=${encodeURIComponent(phone)}`,
       {},
       12000 // 12 second timeout
     );
-    
+
     if (!response.ok) {
-      // Return cached data if available
-      const cachedData = totalBalanceCache?.data ?? null;
-      if (totalBalanceCache) {
-        console.log('[getTotalBalance] Using cached balance due to non-ok response');
-        return cachedData;
+      // Return cached data for THIS phone only (prevents cross-user leakage)
+      if (cachedEntry) {
+        console.log("[getTotalBalance] Using cached balance due to non-ok response");
+        return cachedEntry.data;
       }
-      return { cached: cachedData, success: false, error: `HTTP ${response.status}` };
+      return { cached: null, success: false, error: `HTTP ${response.status}` };
     }
 
     const text = await response.text();
-    if (!text || text.trim() === '') {
-      // Empty response - return cached data
-      const cachedData = totalBalanceCache?.data ?? null;
-      if (totalBalanceCache) {
-        console.log('[getTotalBalance] Using cached balance due to empty response');
-        return cachedData;
+    if (!text || text.trim() === "") {
+      // Empty response - return cached data for THIS phone only
+      if (cachedEntry) {
+        console.log("[getTotalBalance] Using cached balance due to empty response");
+        return cachedEntry.data;
       }
-      return { cached: cachedData, success: false, error: 'Empty response' };
+      return { cached: null, success: false, error: "Empty response" };
     }
 
     const data = JSON.parse(text);
-    
+
     // Only cache successful responses with valid balances
-    if (data.success && typeof data.totalBalance === 'number') {
-      totalBalanceCache = { data, timestamp: Date.now() };
-  
+    if (key && data.success && typeof data.totalBalance === "number") {
+      totalBalanceCacheByPhone[key] = { data, timestamp: Date.now() };
     }
-    
+
     return data;
   } catch (error: any) {
-    console.log('[getTotalBalance] Error:', error.message);
-    
-    // Return cached data if available and not too old
-    const now = Date.now();
-    if (totalBalanceCache && (now - totalBalanceCache.timestamp) < TOTAL_BALANCE_CACHE_MAX_AGE_MS) {
-      console.log('[getTotalBalance] Using cached balance due to error');
-      return totalBalanceCache.data;
+    console.log("[getTotalBalance] Error:", error?.message);
+
+    // Return cached data if available and not too old (for THIS phone only)
+    if (key && cachedEntry && (now - cachedEntry.timestamp) < TOTAL_BALANCE_CACHE_MAX_AGE_MS) {
+      console.log("[getTotalBalance] Using cached balance due to error");
+      return cachedEntry.data;
     }
-    
-    return { cached: totalBalanceCache ? totalBalanceCache.data : null, success: false, error: error.message || 'Network error' };
+
+    return {
+      cached: cachedEntry ? cachedEntry.data : null,
+      success: false,
+      error: error?.message || "Network error",
+    };
   }
 };
 
@@ -1024,6 +1030,27 @@ export interface PayoutDestination {
 }
 
 /**
+ * Rate alert model used by the rate-alerts endpoints
+ */
+export interface RateAlert {
+  toCurrency: any;
+  fromCurrency: any;
+  trigger_count: number;
+  triggered_at: any;
+  triggerCount: number;
+  id?: number;
+  phone?: string;
+  from_currency?: string;
+  to_currency?: string;
+  target_rate?: number;
+  direction?: "above" | "below";
+  is_recurring?: boolean;
+  is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/**
  * Get available payout destinations
  * Returns exotic currencies (Flutterwave) + CAD (CurrencyCloud EFT)
  */
@@ -1062,24 +1089,6 @@ export async function getPayoutDestinations(): Promise<{
   }
 }
 
-export type RateAlert = {
-  id: number;
-  userId: string;
-  fromCurrency: string;
-  toCurrency: string;
-  targetRate: number;
-  direction: 'above' | 'below';
-  isRecurring: boolean;
-  isActive: boolean;
-  triggerCount: number;
-  triggeredAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-/**
- * Get all rate alerts for a user
- */
 export async function getRateAlerts(phone: string, activeOnly = false): Promise<{ success: boolean; alerts: RateAlert[]; message?: string }> {
   try {
     const url = `${API_BASE_URL}/rate-alerts?phone=${encodeURIComponent(phone)}&active=${activeOnly}`;
@@ -1153,5 +1162,47 @@ export async function deleteRateAlert(alertId: number): Promise<{ success: boole
   } catch (error) {
     console.error('Failed to delete rate alert:', error);
     return { success: false, message: 'Failed to delete rate alert' };
+  }
+}
+
+export async function calculateSendFee(params: {
+  phone: string;
+  transactionType: 'send' | 'withdrawal' | 'conversion' | 'funding';
+  amount: number;
+  currency: string;
+  fromCurrency?: string;
+  toCurrency?: string;
+}): Promise<{
+  success: boolean;
+  feeAmount?: number;
+  feeCurrency?: string;
+  feeConfig?: {
+    fee_type: string;
+    percentage_fee?: number;
+    flat_fee?: number;
+  };
+  totalAmount?: number;
+  feeAmountInBaseCurrency?: number;
+  baseCurrency?: string;
+  baseCurrencySymbol?: string;
+  message?: string;
+}> {
+  try {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/fees/calculate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone: params.phone,
+        transactionType: params.transactionType,
+        amount: params.amount,
+        currency: params.currency,
+        fromCurrency: params.fromCurrency,
+        toCurrency: params.toCurrency,
+      }),
+    });
+    return response.json();
+  } catch (error) {
+    console.error('Failed to calculate send fee:', error);
+    return { success: false, message: 'Failed to calculate fee' };
   }
 }

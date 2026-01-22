@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { COLORS } from "../theme/colors";
 import { useFonts, Inter_400Regular, Inter_600SemiBold } from "@expo-google-fonts/inter";
@@ -15,47 +15,65 @@ function RootLayoutContent() {
     Inter_600SemiBold,
   });
 
+  // ✅ Any screens you want accessible without token
+  // Add BOTH spellings if you ever used a different file name previously.
+  const publicScreens = useMemo(
+    () =>
+      new Set([
+        // "login",
+        // "getstarted",
+        // "resetpassword",
+        // "verifynumber",
+        // "verifyphonenumber", // optional safety if you used this name anywhere
+        // "setpin",
+        // "basicinfo",
+        // "protectpassword",
+        // "globalaccount",
+        // "networkerrorstate",
+      ]),
+    []
+  );
+
   useEffect(() => {
+    if (!fontsLoaded) return;
+
     const checkAuth = async () => {
       try {
         const token = await AsyncStorage.getItem("auth_token");
 
-        // segments could be ["(tabs)"] or ["(auth)","verifynumber"] etc.
+        // segments examples:
+        // ["(tabs)"]
+        // ["(auth)", "getstarted"]
+        // ["(auth)", "verifynumber"]
+        // ["withdraw"] etc
         const first = String(segments?.[0] ?? "");
-        const second = String(segments?.[1] ?? "");
+        const leaf = String(segments?.[segments.length - 1] ?? "");
 
-        // ✅ Any screens you want accessible without token
-        // const publicScreens = new Set([
-        //   "login",
-        //   "getstarted",
-        //   "resetpassword",
-        //   "verifynumber",
-        //   "setpin",
-        //   "basicinfo",
-        //   "protectpassword",
-        //   "globalaccount",
-        // ]);
+        // ✅ If you are using a route group for auth like "(auth)", allow that group too
+        const isAuthGroup = first === "(auth)";
 
-        // // ✅ Allow if current route is public (either in first or second segment)
-        // const isPublic = publicScreens.has(first) || publicScreens.has(second);
+        // ✅ Allow if current route is public (we check leaf, not only first/second)
+        // const isPublic = publicScreens.has(leaf) || publicScreens.has(first);
 
-        // // ✅ If you are using a route group for auth like "(auth)", allow that group too
-        // const isAuthGroup = first === "(auth)";
-
-        // // If not authenticated, block access to private routes
+        // ✅ If not authenticated, block access to private routes
+        // Choose where you want unauth users to land:
+        // - "/getstarted" if you want onboarding first
+        // - "/login" if you want login first
         // if (!token && !(isPublic || isAuthGroup)) {
         //   router.replace("/login");
         // }
 
         setAuthChecked(true);
       } catch (e) {
-        router.replace("/login");
+        // If AsyncStorage fails, treat as logged out
+        router.replace("/getstarted");
         setAuthChecked(true);
       }
     };
 
-    if (fontsLoaded) checkAuth();
-  }, [fontsLoaded, segments, router]);
+    checkAuth();
+    // IMPORTANT: segments changes during navigation — that's fine now because leaf detection is correct
+  }, [fontsLoaded, segments, router, publicScreens]);
 
   if (!fontsLoaded || !authChecked) return null;
 
@@ -90,7 +108,13 @@ function RootLayoutContent() {
       <Stack.Screen name="ngn-wallet" options={{ title: "" }} />
       <Stack.Screen name="send-money" options={{ title: "Send money" }} />
       <Stack.Screen name="add-money-methods" options={{ title: "" }} />
+      <Stack.Screen name="addmoneycard" options={{ title: "Add Money" }} />
+      <Stack.Screen name="addmoneyeft" options={{ title: "Add Money via EFT" }} />
+      <Stack.Screen name="addmoneyinterac" options={{ title: "Add Money via Interac" }} />
       <Stack.Screen name="convert" options={{ title: "Convert" }} />
+      <Stack.Screen name="referral" options={{ title: "Referral" }} />
+      <Stack.Screen name="withdraw" options={{ title: "Withdraw" }} />
+
       <Stack.Screen name="exchangerates" options={{ title: "Exchange Rates" }} />
       <Stack.Screen name="ratealerts" options={{ title: "Rate Alerts" }} />
       <Stack.Screen name="all-transactions" options={{ title: "Transactions" }} />

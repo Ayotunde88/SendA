@@ -28,6 +28,9 @@ export interface WalletTransaction {
   provider?: string;
   description?: string;
   feeAmount?: number;
+  feeAmountInBaseCurrency?: number;
+  baseCurrency?: string;
+  baseCurrencySymbol?: string;
   feeCurrency?: string;
   createdAt: string;
   completedAt?: string;
@@ -196,6 +199,11 @@ function normalizeTransaction(tx: any): WalletTransaction {
     description: tx.description,
     feeAmount: tx.fee_amount || tx.feeAmount ? parseFloat(tx.fee_amount || tx.feeAmount) : undefined,
     feeCurrency: tx.fee_currency || tx.feeCurrency,
+    feeAmountInBaseCurrency: tx.fee_amount_in_base_currency || tx.feeAmountInBaseCurrency 
+      ? parseFloat(tx.fee_amount_in_base_currency || tx.feeAmountInBaseCurrency) 
+      : undefined,
+    baseCurrency: tx.base_currency || tx.baseCurrency,
+    baseCurrencySymbol: tx.base_currency_symbol || tx.baseCurrencySymbol,
     createdAt: tx.created_at || tx.createdAt,
     completedAt: tx.completed_at || tx.completedAt,
     userId: tx.user_id || tx.userId,

@@ -29,7 +29,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     try {
       const response = await getNotifications(phone, { perPage: 1 });
       if (response.success) {
-        setUnreadCount(response.unreadCount);
+        // Ensure we pass a number to the state setter (guard against undefined/incorrect types)
+        const count =
+          typeof response.unreadCount === "number"
+            ? response.unreadCount
+            : Number(response.unreadCount ?? 0);
+        setUnreadCount(count as number);
       }
     } catch (err) {
       console.error("Failed to fetch unread count:", err);

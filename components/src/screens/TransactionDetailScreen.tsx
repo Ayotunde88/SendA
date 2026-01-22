@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { View, Text, Pressable, ActivityIndicator, ScrollView, Alert } from "react-native";
+import { View, Text, Pressable, ActivityIndicator, ScrollView, Alert, StyleSheet } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Print from "expo-print";
@@ -53,9 +53,9 @@ export default function TransactionDetailScreen() {
         return COLORS.yellow;
       case "failed":
       case "cancelled":
-        return COLORS.red;
+        return COLORS.error;
       default:
-        return COLORS.gray;
+        return COLORS.muted;
     }
   };
 
@@ -122,7 +122,7 @@ export default function TransactionDetailScreen() {
 
   const generateReceiptHtml = (tx: WalletTransaction): string => {
     const isOut = tx.transactionType === "payout" || tx.transactionType === "transfer_out" || tx.amount < 0;
-    const amountColor = isOut ? COLORS.red : COLORS.green;
+    const amountColor = isOut ? COLORS.error : COLORS.green;
     const amountPrefix = isOut ? "-" : "+";
 
     return `
@@ -148,6 +148,7 @@ export default function TransactionDetailScreen() {
             .row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
             .row-label { font-size: 14px; color: #6b7280; }
             .row-value { font-size: 14px; color: #111827; font-weight: 500; text-align: right; }
+            .row-value.red { color: #ef4444; }
             .reference { font-family: monospace; font-size: 12px; background: #f3f4f6; padding: 8px 12px; border-radius: 8px; margin-top: 8px; word-break: break-all; }
             .footer { padding: 20px 24px; text-align: center; background: #f9fafb; }
             .footer p { font-size: 11px; color: #9ca3af; }
@@ -159,14 +160,13 @@ export default function TransactionDetailScreen() {
               <h1>Transaction Receipt</h1>
               <p>Thank you for using our service</p>
             </div>
-            
             <div class="amount-section">
               <div class="type-label">${getTransactionTypeLabel(tx.transactionType)}</div>
               <div class="amount">${amountPrefix}${formatAmount(tx.amount, tx.currency)}</div>
               <div class="status">${tx.status.toUpperCase()}</div>
             </div>
 
-            ${tx.transactionType === "conversion" && tx.fromCurrency && tx.toCurrency ? `
+${tx.transactionType === "conversion" && tx.fromCurrency && tx.toCurrency ? `
             <div class="section">
               <div class="section-title">Conversion Details</div>
               <div class="row">
@@ -177,36 +177,36 @@ export default function TransactionDetailScreen() {
                 <span class="row-label">To</span>
                 <span class="row-value">${tx.toAmount?.toLocaleString()} ${tx.toCurrency}</span>
               </div>
-              ${tx.exchangeRate ? `
+${tx.exchangeRate ? `
               <div class="row">
                 <span class="row-label">Exchange Rate</span>
                 <span class="row-value">1 ${tx.fromCurrency} = ${tx.exchangeRate.toFixed(6)} ${tx.toCurrency}</span>
               </div>
-              ` : ''}
+` : ''}
             </div>
-            ` : ''}
+` : ''}
 
-            ${tx.counterpartyName ? `
+${tx.counterpartyName ? `
             <div class="section">
               <div class="section-title">${isOut ? 'Recipient' : 'Sender'}</div>
               <div class="row">
                 <span class="row-label">Name</span>
                 <span class="row-value">${tx.counterpartyName}</span>
               </div>
-              ${tx.counterpartyBank ? `
+${tx.counterpartyBank ? `
               <div class="row">
                 <span class="row-label">Bank</span>
                 <span class="row-value">${tx.counterpartyBank}</span>
               </div>
-              ` : ''}
-              ${tx.counterpartyAccount ? `
+` : ''}
+${tx.counterpartyAccount ? `
               <div class="row">
                 <span class="row-label">Account</span>
                 <span class="row-value">•••• ${tx.counterpartyAccount.slice(-4)}</span>
               </div>
-              ` : ''}
+` : ''}
             </div>
-            ` : ''}
+` : ''}
 
             <div class="section">
               <div class="section-title">Transaction Info</div>
@@ -218,24 +218,32 @@ export default function TransactionDetailScreen() {
                 <span class="row-label">Time</span>
                 <span class="row-value">${formatTime(tx.createdAt)}</span>
               </div>
-              ${tx.provider ? `
+${tx.provider ? `
               <div class="row">
                 <span class="row-label">Provider</span>
                 <span class="row-value">${tx.provider}</span>
               </div>
-              ` : ''}
+` : ''}
               <div class="reference">${tx.reference}</div>
             </div>
 
-            ${tx.feeAmount && tx.feeAmount > 0 ? `
+${tx.feeAmount && tx.feeAmount > 0 ? `
             <div class="section">
-              <div class="section-title">Fees</div>
+              <div class="section-title">Fees & Charges</div>
               <div class="row">
-                <span class="row-label">Fee Amount</span>
-                <span class="row-value">${tx.feeAmount.toFixed(2)} ${tx.feeCurrency || tx.currency}</span>
+                <span class="row-label">Transaction Amount</span>
+                <span class="row-value">${formatAmount(Math.abs(tx.amount), tx.currency)}</span>
+              </div>
+              <div class="row">
+                <span class="row-label">Platform Fee</span>
+                 <span class="row-value red">-${tx.feeAmountInBaseCurrency && tx.baseCurrency && tx.baseCurrency !== (tx.feeCurrency || tx.currency) ? `${tx.baseCurrencySymbol || ''}${tx.feeAmountInBaseCurrency.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span style="color:#6B7280;font-size:12px;">(≈ ${formatAmount(tx.feeAmount, tx.feeCurrency || tx.currency)})</span>` : formatAmount(tx.feeAmount, tx.feeCurrency || tx.currency)}</span>
+              </div>
+              <div class="row">
+                <span class="row-label"><strong>Total Charged</strong></span>
+                <span class="row-value"><strong>${formatAmount(Math.abs(tx.amount) + tx.feeAmount, tx.currency)}</strong></span>
               </div>
             </div>
-            ` : ''}
+` : ''}
 
             <div class="footer">
               <p>Generated on ${new Date().toLocaleString()}</p>
@@ -254,7 +262,6 @@ export default function TransactionDetailScreen() {
     try {
       const html = generateReceiptHtml(transaction);
       const { uri } = await Print.printToFileAsync({ html });
-      
       const isAvailable = await Sharing.isAvailableAsync();
       if (isAvailable) {
         await Sharing.shareAsync(uri, {
@@ -280,7 +287,6 @@ export default function TransactionDetailScreen() {
     try {
       const html = generateReceiptHtml(transaction);
       const { uri } = await Print.printToFileAsync({ html });
-      
       const isAvailable = await Sharing.isAvailableAsync();
       if (isAvailable) {
         await Sharing.shareAsync(uri, {
@@ -326,7 +332,7 @@ export default function TransactionDetailScreen() {
           </View>
           <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
             <Text style={{ fontSize: 48, marginBottom: 12 }}>❌</Text>
-            <Text style={{ color: COLORS.red, fontWeight: "700", fontSize: 16 }}>
+            <Text style={{ color: COLORS.error, fontWeight: "700", fontSize: 16 }}>
               {error || "Transaction not found"}
             </Text>
             <Pressable
@@ -369,7 +375,7 @@ export default function TransactionDetailScreen() {
             <Text
               style={[
                 styles.amount,
-                { color: isOutgoing ? COLORS.red : COLORS.green },
+                { color: isOutgoing ? COLORS.error : COLORS.green },
               ]}
             >
               {isOutgoing ? "-" : "+"}
@@ -502,14 +508,46 @@ export default function TransactionDetailScreen() {
             )}
           </View>
 
-          {/* Fee Info */}
+          {/* Fees & Charges Section */}
           {transaction.feeAmount && transaction.feeAmount > 0 && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Fees</Text>
+              <Text style={styles.sectionTitle}>Fees & Charges</Text>
               <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Fee Amount</Text>
+                <Text style={styles.detailLabel}>Transaction Amount</Text>
                 <Text style={styles.detailValue}>
-                  {transaction.feeAmount.toFixed(2)} {transaction.feeCurrency || transaction.currency}
+                  {formatAmount(Math.abs(transaction.amount), transaction.currency)}
+                </Text>
+              </View>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Platform Fee</Text>
+                <View style={{ alignItems: 'flex-end' }}>
+                  {transaction.feeAmountInBaseCurrency && transaction.baseCurrency && 
+                   transaction.baseCurrency !== (transaction.feeCurrency || transaction.currency) ? (
+                    <>
+                      <Text style={[styles.detailValue, { color: COLORS.error }]}>
+                        -{transaction.baseCurrencySymbol || ''}{transaction.feeAmountInBaseCurrency.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </Text>
+                      <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
+                        ≈ {formatAmount(transaction.feeAmount, transaction.feeCurrency || transaction.currency)}
+                      </Text>
+                    </>
+                  ) : (
+                    <Text style={[styles.detailValue, { color: COLORS.error }]}>
+                      -{formatAmount(transaction.feeAmount, transaction.feeCurrency || transaction.currency)}
+                    </Text>
+                  )}
+                </View>
+              </View>
+              <View style={{ 
+                borderTopWidth: 1, 
+                borderTopColor: COLORS.border, 
+                borderStyle: 'dashed',
+                marginVertical: 8 
+              }} />
+              <View style={styles.detailRow}>
+                <Text style={[styles.detailLabel, { fontWeight: "700" }]}>Total Charged</Text>
+                <Text style={[styles.detailValue, { fontWeight: "700" }]}>
+                  {formatAmount(Math.abs(transaction.amount) + transaction.feeAmount, transaction.currency)}
                 </Text>
               </View>
             </View>
@@ -530,11 +568,6 @@ export default function TransactionDetailScreen() {
               disabled={generatingPdf}
               style={styles.outlineBtn}
             >
-              {/* {generatingPdf ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                ""
-              )} */}
               <Text style={{ color: COLORS.green, fontWeight: "700", fontSize: 16 }}>
                 Download Receipt
               </Text>
@@ -545,11 +578,6 @@ export default function TransactionDetailScreen() {
               disabled={generatingPdf}
               style={styles.primaryBtn}
             >
-              {/* {generatingPdf ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                ""
-              )} */}
               <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>
                 Share Receipt
               </Text>
@@ -570,3 +598,4 @@ export default function TransactionDetailScreen() {
     </SafeAreaView>
   );
 }
+

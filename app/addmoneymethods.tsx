@@ -1,2 +1,2 @@
-import AddMoneyMethodsScreen from "../components/src/screens/AddMoneyMethodsScreen";
+import AddMoneyMethodsScreen from "../components/src/screens/AddMoney/AddMoneyMethodsScreen";
 export default AddMoneyMethodsScreen;

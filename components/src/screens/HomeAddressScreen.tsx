@@ -384,25 +384,22 @@ export default function HomeAddressScreen() {
         accessible={false}
       >
         <View style={{ flex: 1 }}>
-          <View style={styles.headerRow}>
-            <Pressable onPress={() => router.back()} style={styles.backBtn}>
-              <Text style={styles.backIcon}>←</Text>
+          <View style={styles.topRow}>
+            <Pressable onPress={() => router.back()} style={styles.iconBtn}>
+              <Text style={styles.backArrow}>←</Text>
             </Pressable>
-            <View style={{ flex: 1 }}>
-              <View style={styles.topRow}>
-                {/* <Pressable onPress={() => router.back()} style={styles.iconBtn}>
-                  <Text style={styles.backArrow}>←</Text>
-                </Pressable> */}
-                <Text style={styles.title}>Enter Your Address</Text>
-                <Pressable style={styles.getHelpPill}>
-                  <Text style={styles.getHelpText}>Get help</Text>
-                </Pressable>
-              </View>
-              <Text style={styles.subtitle}>{loadingCountry
-              ? "Loading..."
-              : `Enter your ${country?.name ?? "country"} home address, No P.O Boxes.`}</Text>
-            </View>
+            <Pressable style={styles.getHelpPill}>
+              <Text style={styles.getHelpText}>Get help</Text>
+            </Pressable>
           </View>
+
+          <Text style={styles.bigTitle}>What&apos;s your home address?</Text>
+
+          <Text style={[styles.muted, { marginTop: 6, marginBottom: 12 }]}>
+            {loadingCountry
+              ? "Loading..."
+              : `Enter your ${country?.name ?? "country"} home address, No P.O Boxes.`}
+          </Text>
 
           {/* Use current location */}
           <Pressable

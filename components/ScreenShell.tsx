@@ -12,7 +12,7 @@ interface TitleProps {
   showBack?: boolean;
 }
 
-export default function ScreenShell({ children, padded = true }: Props) {
+export default function ScreenShell({ children, padded = true, }: Props) {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <ScrollView

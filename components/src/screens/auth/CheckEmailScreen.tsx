@@ -13,7 +13,7 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import ScreenShell from "../../../../components/ScreenShell";
 import { styles } from "../../../../theme/styles";
 import { COLORS } from "../../../../theme/colors";
-import { resendEmailOtp, verifyEmailOtp } from "@/api/config";
+import { checkEmailVerified, resendEmailOtp, verifyEmailOtp } from "@/api/config";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const CODE_LEN = 6;
@@ -101,34 +101,39 @@ export default function CheckEmailCodeScreen() {
   };
 
   const handleContinue = async () => {
-    if (!canContinue) return;
+  if (!canContinue || !email) return;
 
-    // extra guard
-    if (!email) {
-      console.log("Missing email in route params");
+  setSubmitting(true);
+  try {
+    // 1. Get user_phone from AsyncStorage
+    const phone = await AsyncStorage.getItem("user_phone");
+    if (!phone) {
+      console.log("Missing user_phone in AsyncStorage");
       return;
     }
 
-    setSubmitting(true);
-    try {
-      const userPhone = await AsyncStorage.getItem('user_phone');
-      const result = await verifyEmailOtp(email, codeValue, userPhone || undefined);
-      console.log("Verify email OTP:", { email, code: codeValue });
+    // 2. Pass phone to verifyEmailOtp
+    await verifyEmailOtp(email, codeValue, phone);
+    console.log("Verify email OTP:", { email, code: codeValue, phone });
 
-      router.replace("/homeaddress");
-
-      // await AsyncStorage.setItem("email_verified", "true");
-      // setEmailVerified(true);
-
-    } catch (err: any) {
-      console.log(getErrorMessage(err));
-
-      setCode(Array(CODE_LEN).fill(""));
-      focusIndex(0);
-    } finally {
-      setSubmitting(false);
+    // 3. Re-check status from backend (source of truth)
+    const status = await checkEmailVerified(phone);
+    if (status.emailVerified) {
+      setEmailVerified(true);
     }
-  };
+
+    // 4. Navigate (no AsyncStorage.setItem for email_verified)
+    router.replace("/homeaddress");
+  } catch (err: any) {
+    console.log(getErrorMessage(err));
+    setCode(Array(CODE_LEN).fill(""));
+    focusIndex(0);
+  } finally {
+    setSubmitting(false);
+  }
+};
+
+
 
   const resendCode = async () => {
     if (!canResend) return;

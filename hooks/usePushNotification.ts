@@ -15,6 +15,7 @@ import {
   addNotificationReceivedListener,
   removeNotificationSubscription,
 } from '../services/pushNotifications';
+import { useNotificationContext } from '@/context/NotificationContext';
 
 export interface PushNotificationState {
   expoPushToken: string | null;
@@ -24,6 +25,7 @@ export interface PushNotificationState {
 
 export function usePushNotifications() {
   const router = useRouter();
+  const { refreshUnreadCount } = useNotificationContext();
   const [expoPushToken, setExpoPushToken] = useState<string | null>(null);
   const [notification, setNotification] = useState<Notifications.Notification | null>(null);
   const [isRegistered, setIsRegistered] = useState(false);
@@ -50,6 +52,7 @@ export function usePushNotifications() {
     // Listen for incoming notifications (foreground)
     notificationListener.current = addNotificationReceivedListener((notification) => {
       console.log('[PushNotifications] Received:', notification);
+      refreshUnreadCount();
       setNotification(notification);
     });
 
@@ -77,7 +80,7 @@ export function usePushNotifications() {
         removeNotificationSubscription(responseListener.current);
       }
     };
-  }, [router]);
+    }, [router, refreshUnreadCount]);
 
   return {
     expoPushToken,

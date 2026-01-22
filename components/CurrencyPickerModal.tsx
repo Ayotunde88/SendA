@@ -1,20 +1,18 @@
+/**
+ * CurrencyPickerModal - Modal for selecting currencies from user wallets
+ * Supports search filtering and disabled wallet display
+ */
 import React, { useState } from "react";
-import {
-  View,
-  Text,
-  Pressable,
-  Modal,
-  FlatList,
-  TextInput,
-  StyleSheet,
-} from "react-native";
-import { styles } from "../theme/styles";
+import { View, Text, Pressable, Modal, FlatList, TextInput, StyleSheet } from "react-native";
+import { COLORS } from "../theme/colors";
+import CountryFlag from "./CountryFlag";
 
 export interface Wallet {
   id: number;
   currencyCode: string;
   currencyName: string;
   countryName: string | null;
+  countryCode?: string;
   flag: string;
   symbol: string;
   balance: number;
@@ -48,7 +46,10 @@ export default function CurrencyPickerModal({
   );
 
   const handleSelect = (wallet: Wallet) => {
-    if (wallet.status === "disabled") return;
+    if (wallet.status === "disabled") {
+      // Could show alert here
+      return;
+    }
     onSelect(wallet);
     onClose();
     setSearch("");
@@ -86,26 +87,29 @@ export default function CurrencyPickerModal({
                 ]}
                 onPress={() => handleSelect(item)}
               >
-                <Text style={styles.itemFlag}>{item.flag}</Text>
-
+                <CountryFlag 
+                  countryCode={item.countryCode} 
+                  currencyCode={item.countryName ?? undefined} 
+                  fallbackEmoji={item.flag} 
+                  size="lg" 
+                />
                 <View style={styles.itemInfo}>
                   <Text style={styles.itemName}>
                     {item.currencyCode} - {item.countryName || item.currencyName}
                   </Text>
-
-                  {/* ✅ FIX: don't use styles.itemBalance since it's not defined in theme/styles */}
-                  <Text style={modalStyles.itemBalance}>
+                  <Text style={styles.itemBalance}>
                     Balance: {item.formattedBalance}
                     {item.status === "disabled" && " (Disabled)"}
                   </Text>
                 </View>
-
                 {item.currencyCode === selected?.currencyCode && (
                   <Text style={styles.checkmark}>✓</Text>
                 )}
               </Pressable>
             )}
-            ListEmptyComponent={<Text style={styles.emptyText}>No currencies found</Text>}
+            ListEmptyComponent={
+              <Text style={styles.emptyText}>No currencies found</Text>
+            }
           />
         </Pressable>
       </Pressable>
@@ -113,10 +117,86 @@ export default function CurrencyPickerModal({
   );
 }
 
-const modalStyles = StyleSheet.create({
+const styles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: "70%",
+    paddingBottom: 40,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  closeBtn: {
+    width: 30,
+    height: 30,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  closeText: {
+    fontSize: 18,
+    color: "#6B7280",
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1F2937",
+  },
+  searchInput: {
+    marginHorizontal: 16,
+    marginVertical: 12,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: "#1F2937",
+  },
+  item: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F9FAFB",
+    gap: 12,
+  },
+  itemSelected: {
+    backgroundColor: "#F0FDF4",
+  },
+  itemInfo: {
+    flex: 1,
+  },
+  itemName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#1F2937",
+  },
   itemBalance: {
-    marginTop: 4,
     fontSize: 13,
     color: "#6B7280",
+    marginTop: 2,
+  },
+  checkmark: {
+    fontSize: 18,
+    color: "#16A34A",
+    fontWeight: "700",
+  },
+  emptyText: {
+    textAlign: "center",
+    color: "#9CA3AF",
+    marginTop: 40,
+    fontSize: 16,
   },
 });

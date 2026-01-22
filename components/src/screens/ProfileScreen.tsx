@@ -39,6 +39,7 @@ export default function ProfileScreen() {
     try {
       // 🔥 Clear ALL user + session + cached app data
       await AsyncStorage.multiRemove([
+        // Auth & user identity
         "auth_token",
         "user_phone",
         "user_info",
@@ -47,11 +48,34 @@ export default function ProfileScreen() {
         "user_country_name",
         "user_country_flag",
 
-        // app preferences / cached data
+        // App preferences
         "hide_balance_preference",
+        
+        // Recipients cache
         "saved_ngn_recipients",
         "recent_recipients",
+        "recent_recipients_v1",
         "saved_recipients",
+
+        // Wallet & account caches (from HomeScreen)
+        "cached_accounts_v1",
+        "cached_total_balance_v1",
+        "cached_flags_v1",
+
+        // Synced wallet caches (from useSyncedWallets hook)
+        "synced_wallets_v1",
+        "synced_total_v1",
+
+        // Transaction caches (from useSyncedTransactions hook)
+        "synced_transactions_v1",
+
+        // Pending settlements cache
+        "pending_settlements_v1",
+
+        // Region caches (country-specific)
+        "regions_canada",
+        "regions_united states",
+        "regions_mexico",
       ]);
 
       // Optional: double check token is gone (for debugging)
@@ -113,7 +137,7 @@ export default function ProfileScreen() {
           iconBg="#F4F1D7"
           icon="🎧"
           title="Help and support"
-          subtitle="Need help? We’ve got you."
+          subtitle="Need help? We've got you."
         />
 
         <MenuRow
@@ -121,7 +145,7 @@ export default function ProfileScreen() {
           icon="🔒"
           title="Security and privacy"
           subtitle="Keep your account safe"
-          onPress={() => router.push("/securityprivacy")} // ✅ correct route
+          onPress={() => router.push("/securityprivacy")}
         />
 
         <MenuRow

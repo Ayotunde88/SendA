@@ -10,6 +10,7 @@ import {
 import { getCountries } from "../api/config";
 import { COLORS } from "../theme/colors";
 import { styles } from "../theme/styles";
+import CountryFlag from "./CountryFlag";
 
 export interface Country {
   code: string;
@@ -67,7 +68,7 @@ export default function CountryDropdown({ value, onChange }: Props) {
   if (!value) {
     return (
       <View style={styles.countryBox}>
-        <Text style={styles.flag}>🏳️</Text>
+        <CountryFlag size="md" fallbackEmoji="🏳️" />
         <Text style={styles.arrow}>▼</Text>
       </View>
     );
@@ -76,7 +77,7 @@ export default function CountryDropdown({ value, onChange }: Props) {
   return (
     <>
       <Pressable style={styles.countryBox} onPress={() => setVisible(true)}>
-        <Text style={styles.flag}>{value.flag ?? "🏳️"}</Text>
+        <CountryFlag countryCode={value.code} fallbackEmoji={value.flag ?? "🏳️"} size="md" />
         <Text style={styles.arrow}>▼</Text>
       </Pressable>
 
@@ -115,7 +116,7 @@ export default function CountryDropdown({ value, onChange }: Props) {
                   ]}
                   onPress={() => handleSelect(item)}
                 >
-                  <Text style={styles.itemFlag}>{item.flag ?? "🏳️"}</Text>
+                  <CountryFlag countryCode={item.code} fallbackEmoji={item.flag ?? "🏳️"} size="lg" />
                   <View style={styles.itemInfo}>
                     <Text style={styles.itemName}>{item.name}</Text>
                     <Text style={styles.itemDialCode}>{item.dialCode ?? ""}</Text>

@@ -28,9 +28,9 @@ export default function VerifyEmailCardScreen({ onPress, email }: Props) {
 
         <View style={styles.verifyProgressRow}>
           <View style={styles.verifyProgressTrack}>
-            <View style={emailVerified ? styles.verifyProgressEmpty : styles.verifyProgressHalf} />
+            <View style={emailVerified ? styles.verifyProgressFill : styles.verifyProgressEmpty} />
           </View>
-          <Text style={styles.verifyProgressText}>{emailVerified ? "0 / 2 completed" : "0 / 2 completed"}</Text>
+          <Text style={styles.verifyProgressText}>{emailVerified ? "1 / 2 completed" : "0 / 2 completed"}</Text>
         </View>
 
         <Pressable style={styles.verifyCardBtn} onPress={onPress}>

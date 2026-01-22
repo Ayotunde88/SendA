@@ -106,6 +106,18 @@ export default function TabsLayout() {
           ),
         }}
       />
+
+
+      {/* Referral */}
+      <Tabs.Screen
+        name="referral"
+        options={{
+          title: "Referral",
+          tabBarIcon: ({ focused }) => (
+            <TabBarIcon name="gift" focused={focused} />
+          ),
+        }}
+      />
     </Tabs>
   );
 }

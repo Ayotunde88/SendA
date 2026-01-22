@@ -19,6 +19,7 @@ export interface Notification {
 }
 
 export type NotificationsResponse = {
+  unreadCount?: number;
   success: boolean;
   notifications: Notification[];
   message?: string;

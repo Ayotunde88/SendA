@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import ScreenShell from "../../../components/ScreenShell";
 import { styles } from "../../../theme/styles";
+import { otherstyles } from "../../../theme/otherstyles";
 import { COLORS } from "../../../theme/colors";
 import {
   getBanksByCountry,
@@ -28,7 +29,7 @@ import { SavedRecipient } from "./RecipientSelectScreen";
 
 const SAVED_RECIPIENTS_KEY = "saved_recipients";
 
-// Bank picker modal component
+/** ---------------- Bank Picker Modal ---------------- **/
 function BankPickerModal({
   visible,
   banks,
@@ -48,52 +49,35 @@ function BankPickerModal({
   setSearchQuery: (q: string) => void;
   countryName: string;
 }) {
-  if (!visible) return null;
-
-  const filteredBanks = banksLoading
-    ? []
-    : banks.filter((b) => b.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredBanks = useMemo(() => {
+    if (banksLoading) return [];
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return banks;
+    return banks.filter((b) => b.name.toLowerCase().includes(q));
+  }, [banks, banksLoading, searchQuery]);
 
   return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: "rgba(0,0,0,0.5)",
-          justifyContent: "flex-end",
-        }}
-      >
-        <Pressable style={{ flex: 1 }} onPress={onClose} />
-        <View
-          style={{
-            backgroundColor: "#fff",
-            borderTopLeftRadius: 24,
-            borderTopRightRadius: 24,
-            maxHeight: "70%",
-            paddingBottom: 40,
-          }}
-        >
-          <View style={{ padding: 20 }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text style={{ fontSize: 18, fontWeight: "700", color: "#1F2937" }}>
-                Select {countryName} Bank
-              </Text>
-              <Pressable onPress={onClose}>
-                <Text style={{ fontSize: 16, color: "#6B7280" }}>Cancel</Text>
-              </Pressable>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={otherstyles.bankModalOverlay}>
+        <Pressable style={otherstyles.bankModalBackdrop} onPress={onClose} />
+
+        <View style={otherstyles.bankModalSheet}>
+          <View style={otherstyles.bankModalHeader}>
+            <View>
+              <Text style={otherstyles.bankModalTitle}>Select {countryName} bank</Text>
+              <Text style={otherstyles.bankModalSub}>Choose the recipient’s bank to continue</Text>
             </View>
 
+            <Pressable onPress={onClose} style={otherstyles.bankModalCloseBtn}>
+              <Text style={otherstyles.bankModalCloseText}>Close</Text>
+            </Pressable>
+          </View>
+
+          <View style={otherstyles.bankModalSearchWrap}>
+            <Text style={otherstyles.bankModalSearchIcon}>⌕</Text>
             <TextInput
-              style={{
-                marginTop: 16,
-                backgroundColor: "#F3F4F6",
-                borderRadius: 12,
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-                fontSize: 16,
-                color: "#1F2937",
-              }}
-              placeholder={banksLoading ? "Loading banks..." : "Search banks..."}
+              style={otherstyles.bankModalSearchInput}
+              placeholder={banksLoading ? "Loading banks..." : "Search bank name"}
               placeholderTextColor="#9CA3AF"
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -102,40 +86,40 @@ function BankPickerModal({
             />
           </View>
 
-          <ScrollView style={{ paddingHorizontal: 20 }}>
+          <ScrollView
+            style={otherstyles.bankModalList}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
             {banksLoading ? (
-              <View style={{ alignItems: "center", paddingVertical: 24 }}>
-                <ActivityIndicator size="small" color="#6B7280" />
-                <Text style={{ marginTop: 10, textAlign: "center", color: "#9CA3AF" }}>
-                  Loading {countryName} banks…
+              <View style={otherstyles.bankModalLoading}>
+                <ActivityIndicator size="small" color={COLORS.primary} />
+                <Text style={otherstyles.bankModalLoadingText}>Loading {countryName} banks…</Text>
+              </View>
+            ) : filteredBanks.length > 0 ? (
+              filteredBanks.map((bank) => (
+                <Pressable
+                  key={bank.code}
+                  style={otherstyles.bankModalRow}
+                  onPress={() => {
+                    onSelect(bank);
+                    onClose();
+                  }}
+                >
+                  <Text style={otherstyles.bankModalRowText}>{bank.name}</Text>
+                  <Text style={otherstyles.bankModalChevron}>›</Text>
+                </Pressable>
+              ))
+            ) : (
+              <View style={otherstyles.bankModalEmpty}>
+                <Text style={otherstyles.bankModalEmptyTitle}>No results</Text>
+                <Text style={otherstyles.bankModalEmptySub}>
+                  {banks.length === 0 ? "No banks loaded yet." : "Try a different search term."}
                 </Text>
               </View>
-            ) : (
-              <>
-                {filteredBanks.map((bank) => (
-                  <Pressable
-                    key={bank.code}
-                    style={{
-                      paddingVertical: 16,
-                      borderBottomWidth: 1,
-                      borderBottomColor: "#F3F4F6",
-                    }}
-                    onPress={() => {
-                      onSelect(bank);
-                      onClose();
-                    }}
-                  >
-                    <Text style={{ fontSize: 16, color: "#1F2937" }}>{bank.name}</Text>
-                  </Pressable>
-                ))}
-
-                {filteredBanks.length === 0 && (
-                  <Text style={{ textAlign: "center", color: "#9CA3AF", marginTop: 20 }}>
-                    {banks.length === 0 ? "No banks loaded" : "No banks found"}
-                  </Text>
-                )}
-              </>
             )}
+
+            <View style={{ height: 24 }} />
           </ScrollView>
         </View>
       </View>
@@ -143,6 +127,7 @@ function BankPickerModal({
   );
 }
 
+/** ---------------- Screen ---------------- **/
 export default function RecipientNewScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
@@ -156,14 +141,14 @@ export default function RecipientNewScreen() {
     countryName?: string;
   }>();
 
-  const destCurrency = params.destCurrency || "NGN";
-  const countryCode = params.countryCode || CURRENCY_TO_COUNTRY[destCurrency] || "NG";
+  const destCurrency = (params.destCurrency || "NGN").toUpperCase();
+  const countryCode = (params.countryCode || CURRENCY_TO_COUNTRY[destCurrency] || "NG").toUpperCase();
   const countryName = params.countryName || COUNTRY_NAMES[countryCode] || countryCode;
+
   const symbol = getCurrencySymbol(destCurrency);
-  const toAmount = params.toAmount || "0";
+  const toAmountRaw = Number.parseFloat(params.toAmount || "0") || 0;
 
   const [userPhone, setUserPhone] = useState("");
-  const [verifying, setVerifying] = useState(false);
 
   // Bank data
   const [banks, setBanks] = useState<Bank[]>([]);
@@ -175,10 +160,13 @@ export default function RecipientNewScreen() {
   const [accountName, setAccountName] = useState("");
   const [isVerified, setIsVerified] = useState(false);
   const [saveRecipient, setSaveRecipient] = useState(true);
+  const [verifying, setVerifying] = useState(false);
 
   // Modal states
   const [showBankPicker, setShowBankPicker] = useState(false);
   const [bankSearchQuery, setBankSearchQuery] = useState("");
+
+  const isNigeria = countryCode === "NG";
 
   // Load user phone
   useEffect(() => {
@@ -205,17 +193,23 @@ export default function RecipientNewScreen() {
     loadBanks();
   }, [countryCode, countryName]);
 
-  // Verify account (only Nigeria supports auto-verification)
+  // Reset verification when bank/account changes
+  useEffect(() => {
+    setIsVerified(false);
+    if (isNigeria) setAccountName("");
+  }, [selectedBank?.code, accountNumber, isNigeria]);
+
+  // Verify account (NG auto verifies)
   const handleVerifyAccount = useCallback(async () => {
     if (!selectedBank || accountNumber.length < 10) {
-      Alert.alert("Invalid Input", "Please select a bank and enter a valid account number.");
+      Alert.alert("Invalid input", "Please select a bank and enter a valid account number.");
       return;
     }
 
-    // Only Nigeria supports account verification via Flutterwave
-    if (countryCode !== "NG") {
+    // Non-NG: manual (we just mark verified if name exists)
+    if (!isNigeria) {
       if (!accountName.trim()) {
-        Alert.alert("Recipient Name Required", "Please enter the recipient's name.");
+        Alert.alert("Recipient name required", "Please enter the recipient's name.");
         return;
       }
       setIsVerified(true);
@@ -233,7 +227,7 @@ export default function RecipientNewScreen() {
         setIsVerified(true);
       } else {
         Alert.alert(
-          "Verification Failed",
+          "Verification failed",
           result.message || "Could not verify account. Please check the details and try again."
         );
       }
@@ -243,22 +237,14 @@ export default function RecipientNewScreen() {
     } finally {
       setVerifying(false);
     }
-  }, [selectedBank, accountNumber, accountName, countryCode]);
+  }, [selectedBank, accountNumber, accountName, isNigeria]);
 
-  // Auto-verify for Nigerian accounts when account number reaches 10 digits
+  // Auto-verify for NG when 10 digits
   useEffect(() => {
-    if (countryCode === "NG" && accountNumber.length === 10 && selectedBank && !isVerified && !verifying) {
+    if (isNigeria && accountNumber.length === 10 && selectedBank && !isVerified && !verifying) {
       handleVerifyAccount();
     }
-  }, [accountNumber, selectedBank, isVerified, verifying, handleVerifyAccount, countryCode]);
-
-  // Reset verification when bank or account changes
-  useEffect(() => {
-    setIsVerified(false);
-    if (countryCode === "NG") {
-      setAccountName("");
-    }
-  }, [selectedBank?.code, countryCode]);
+  }, [accountNumber, selectedBank, isVerified, verifying, handleVerifyAccount, isNigeria]);
 
   const handleContinue = async () => {
     if (!selectedBank || !accountNumber) {
@@ -267,21 +253,18 @@ export default function RecipientNewScreen() {
     }
 
     if (!accountName.trim()) {
-      Alert.alert("Recipient Name Required", "Please enter the recipient's name.");
+      Alert.alert("Recipient name required", "Please enter the recipient's name.");
       return;
     }
 
-    // For non-NG countries, manually mark as verified
-    if (countryCode !== "NG" && !isVerified) {
-      setIsVerified(true);
-    }
+    // Non-NG: allow manual confirm state
+    if (!isNigeria && !isVerified) setIsVerified(true);
 
-    // Save recipient if checkbox is checked
     if (saveRecipient) {
       try {
         const existingData = await AsyncStorage.getItem(SAVED_RECIPIENTS_KEY);
         const existing: SavedRecipient[] = existingData ? JSON.parse(existingData) : [];
-        
+
         const newRecipient: SavedRecipient = {
           id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
           accountName: accountName.trim(),
@@ -293,9 +276,11 @@ export default function RecipientNewScreen() {
           createdAt: Date.now(),
         };
 
-        // Don't add duplicates
         const isDuplicate = existing.some(
-          r => r.accountNumber === accountNumber && r.bankCode === selectedBank.code && r.currency === destCurrency
+          (r) =>
+            r.accountNumber === accountNumber &&
+            r.bankCode === selectedBank.code &&
+            r.currency === destCurrency
         );
 
         if (!isDuplicate) {
@@ -306,7 +291,6 @@ export default function RecipientNewScreen() {
       }
     }
 
-    // Navigate to confirmation screen
     router.push({
       pathname: "/recipientconfirm" as any,
       params: {
@@ -324,211 +308,151 @@ export default function RecipientNewScreen() {
     });
   };
 
-  const canContinue = selectedBank && accountNumber.length >= 6 && accountName.trim().length > 0;
+  const canContinue =
+    !!selectedBank &&
+    accountNumber.trim().length >= 6 &&
+    accountName.trim().length > 0 &&
+    (!isNigeria ? true : isVerified || verifying); // NG: allow continue after verified (or while verifying if it will finish)
+
+  const formattedSendAmount = `${symbol}${toAmountRaw.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} ${destCurrency}`;
 
   return (
-    <ScreenShell>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+    <ScreenShell padded={false}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
+          contentContainerStyle={otherstyles.recipientNewContainer}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
           {/* Header */}
-          <View style={styles.simpleHeader}>
-            <Pressable onPress={() => router.back()} style={styles.backBtn}>
-              <Text style={styles.backIcon}>←</Text>
+          <View style={otherstyles.confirmHeader}>
+            <Pressable onPress={() => router.back()} style={otherstyles.backBtn}>
+              <Text style={otherstyles.backIcon}>←</Text>
             </Pressable>
-            <Text style={{ fontSize: 18, fontWeight: "700", color: "#1F2937" }}>
-              New {countryName} Recipient
-            </Text>
-            <View style={{ width: 40 }} />
+
+            <View style={otherstyles.confirmHeaderCenter}>
+              <Text style={otherstyles.confirmTitle}>New recipient</Text>
+              <Text style={otherstyles.confirmSubtitle}>{countryName} transfer details</Text>
+            </View>
+
+            <View style={otherstyles.confirmHeaderRight} />
           </View>
 
-          {/* Transfer Summary */}
-          <View
-            style={{
-              backgroundColor: "#ECFDF5",
-              borderRadius: 16,
-              padding: 16,
-              marginTop: 16,
-            }}
-          >
-            <Text style={{ fontSize: 14, color: "#065F46", marginBottom: 4 }}>
-              Sending
+          {/* Summary Card */}
+          <View style={otherstyles.recipientNewSummaryCard}>
+            <Text style={otherstyles.recipientNewSummaryLabel}>Sending</Text>
+            <Text style={otherstyles.recipientNewSummaryAmount} numberOfLines={1}>
+              {formattedSendAmount}
             </Text>
-            <Text style={{ fontSize: 24, fontWeight: "800", color: "#065F46" }}>
-              {symbol}{parseFloat(toAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {destCurrency}
-            </Text>
-          </View>
 
-          {/* Bank Selection */}
-          <View style={{ marginTop: 24 }}>
-            <Text style={{ fontSize: 14, fontWeight: "600", color: "#374151", marginBottom: 8 }}>
-              Select {countryName} Bank
-            </Text>
-            <Pressable
-              style={{
-                backgroundColor: "#F9FAFB",
-                borderWidth: 1,
-                borderColor: "#E5E7EB",
-                borderRadius: 12,
-                paddingHorizontal: 16,
-                paddingVertical: 16,
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-              onPress={() => setShowBankPicker(true)}
-            >
-              <Text style={{ fontSize: 16, color: selectedBank ? "#1F2937" : "#9CA3AF" }}>
-                {selectedBank?.name || "Tap to select bank"}
-              </Text>
-              <Text style={{ fontSize: 18, color: "#9CA3AF" }}>▼</Text>
-            </Pressable>
-          </View>
-
-          {/* Account Number */}
-          <View style={{ marginTop: 20 }}>
-            <Text style={{ fontSize: 14, fontWeight: "600", color: "#374151", marginBottom: 8 }}>
-              Account Number
-            </Text>
-            <View
-              style={{
-                backgroundColor: "#F9FAFB",
-                borderWidth: 1,
-                borderColor: "#E5E7EB",
-                borderRadius: 12,
-                paddingHorizontal: 16,
-                paddingVertical: 4,
-                flexDirection: "row",
-                alignItems: "center",
-              }}
-            >
-              <TextInput
-                style={{
-                  flex: 1,
-                  fontSize: 18,
-                  fontWeight: "600",
-                  color: "#1F2937",
-                  paddingVertical: 12,
-                }}
-                placeholder="Enter account number"
-                placeholderTextColor="#9CA3AF"
-                value={accountNumber}
-                onChangeText={(text) => {
-                  setAccountNumber(text.replace(/\D/g, ""));
-                  setIsVerified(false);
-                }}
-                keyboardType="number-pad"
-                maxLength={20}
-              />
-              {verifying && <ActivityIndicator size="small" color="#16A34A" />}
-              {isVerified && <Text style={{ fontSize: 18, color: "#16A34A" }}>✓</Text>}
+            <View style={otherstyles.recipientNewSummaryPills}>
+              <View style={otherstyles.recipientNewPill}>
+                <Text style={otherstyles.recipientNewPillText}>{countryName}</Text>
+              </View>
+              <View style={otherstyles.recipientNewPillSoft}>
+                <Text style={otherstyles.recipientNewPillSoftText}>Bank transfer</Text>
+              </View>
             </View>
           </View>
 
-          {/* Account Name */}
-          <View style={{ marginTop: 20 }}>
-            <Text style={{ fontSize: 14, fontWeight: "600", color: "#374151", marginBottom: 8 }}>
-              Recipient Name {countryCode !== "NG" && <Text style={{ color: "#9CA3AF" }}>(Enter manually)</Text>}
-            </Text>
-            <View
-              style={{
-                backgroundColor: countryCode === "NG" && isVerified ? "#F0FDF4" : "#F9FAFB",
-                borderWidth: 1,
-                borderColor: countryCode === "NG" && isVerified ? "#86EFAC" : "#E5E7EB",
-                borderRadius: 12,
-                paddingHorizontal: 16,
-                paddingVertical: 4,
-              }}
-            >
-              <TextInput
-                style={{
-                  fontSize: 16,
-                  fontWeight: "600",
-                  color: "#1F2937",
-                  paddingVertical: 12,
-                }}
-                placeholder={countryCode === "NG" ? "Auto-filled after verification" : "Enter recipient name"}
-                placeholderTextColor="#9CA3AF"
-                value={accountName}
-                onChangeText={setAccountName}
-                editable={countryCode !== "NG" || !isVerified}
-              />
-            </View>
-          </View>
-
-          {/* Verify Button (for non-NG countries) */}
-          {countryCode !== "NG" && accountNumber.length >= 6 && accountName.trim() && !isVerified && (
-            <Pressable
-              style={{
-                marginTop: 16,
-                backgroundColor: "#E0F2FE",
-                borderRadius: 12,
-                paddingVertical: 12,
-                alignItems: "center",
-              }}
-              onPress={() => setIsVerified(true)}
-            >
-              <Text style={{ fontSize: 14, fontWeight: "600", color: "#0369A1" }}>
-                ✓ Confirm recipient details
-              </Text>
-            </Pressable>
-          )}
-
-          {/* Save Recipient Checkbox */}
+          {/* Bank */}
+          <Text style={otherstyles.recipientNewLabel}>Select bank</Text>
           <Pressable
-            style={{
-              marginTop: 24,
-              flexDirection: "row",
-              alignItems: "center",
-            }}
-            onPress={() => setSaveRecipient(!saveRecipient)}
+            style={otherstyles.recipientNewSelect}
+            onPress={() => setShowBankPicker(true)}
+            disabled={banksLoading}
           >
-            <View
-              style={{
-                width: 24,
-                height: 24,
-                borderRadius: 6,
-                borderWidth: 2,
-                borderColor: saveRecipient ? "#16A34A" : "#D1D5DB",
-                backgroundColor: saveRecipient ? "#16A34A" : "transparent",
-                justifyContent: "center",
-                alignItems: "center",
-                marginRight: 12,
-              }}
-            >
-              {saveRecipient && <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>✓</Text>}
-            </View>
-            <Text style={{ fontSize: 14, color: "#374151" }}>
-              Save this recipient for future transfers
+            <Text style={[otherstyles.recipientNewSelectText, !selectedBank && otherstyles.recipientNewSelectPlaceholder]}>
+              {selectedBank?.name || (banksLoading ? "Loading banks…" : "Tap to select bank")}
             </Text>
+            <Text style={otherstyles.recipientNewSelectChevron}>›</Text>
           </Pressable>
 
-          {/* Continue Button */}
+          {/* Account Number */}
+          <Text style={otherstyles.recipientNewLabel}>Account number</Text>
+          <View style={otherstyles.recipientNewInputBox}>
+            <TextInput
+              style={otherstyles.recipientNewInput}
+              placeholder="Enter account number"
+              placeholderTextColor="#9CA3AF"
+              value={accountNumber}
+              onChangeText={(text) => {
+                setAccountNumber(text.replace(/\D/g, ""));
+              }}
+              keyboardType="number-pad"
+              maxLength={20}
+            />
+
+            {verifying ? (
+              <ActivityIndicator size="small" color={COLORS.primary} />
+            ) : isNigeria && isVerified ? (
+              <View style={otherstyles.recipientNewVerifiedPill}>
+                <Text style={otherstyles.recipientNewVerifiedText}>Verified</Text>
+              </View>
+            ) : null}
+          </View>
+
+          {/* Helper row */}
+          {isNigeria ? (
+            <Text style={otherstyles.recipientNewHelpText}>
+              We’ll auto-verify Nigerian accounts once you enter 10 digits.
+            </Text>
+          ) : (
+            <Text style={otherstyles.recipientNewHelpText}>
+              For {countryName}, enter the recipient name manually.
+            </Text>
+          )}
+
+          {/* Recipient Name */}
+          <Text style={otherstyles.recipientNewLabel}>Recipient name</Text>
+          <View
+            style={[
+              otherstyles.recipientNewInputBox,
+              isNigeria && isVerified ? otherstyles.recipientNewInputBoxVerified : null,
+            ]}
+          >
+            <TextInput
+              style={otherstyles.recipientNewInput}
+              placeholder={isNigeria ? "Auto-filled after verification" : "Enter recipient name"}
+              placeholderTextColor="#9CA3AF"
+              value={accountName}
+              onChangeText={setAccountName}
+              editable={!isNigeria || !isVerified}
+            />
+          </View>
+
+          {/* Manual confirm (Non-NG) */}
+          {!isNigeria && accountNumber.length >= 6 && accountName.trim() && !isVerified ? (
+            <Pressable style={otherstyles.recipientNewSoftBtn} onPress={() => setIsVerified(true)}>
+              <Text style={otherstyles.recipientNewSoftBtnText}>✓ Confirm recipient details</Text>
+            </Pressable>
+          ) : null}
+
+          {/* Save recipient toggle */}
+          <Pressable style={otherstyles.recipientNewSaveRow} onPress={() => setSaveRecipient((v) => !v)}>
+            <View style={[otherstyles.recipientNewCheckbox, saveRecipient && otherstyles.recipientNewCheckboxOn]}>
+              {saveRecipient ? <Text style={otherstyles.recipientNewCheckboxTick}>✓</Text> : null}
+            </View>
+            <Text style={otherstyles.recipientNewSaveText}>Save this recipient for future transfers</Text>
+          </Pressable>
+
+          {/* Continue */}
           <Pressable
-            style={{
-              marginTop: 32,
-              backgroundColor: canContinue ? "#16A34A" : "#E5E7EB",
-              borderRadius: 14,
-              paddingVertical: 16,
-              alignItems: "center",
-            }}
+            style={[otherstyles.primaryBtn, !canContinue && styles.disabledBigBtn, otherstyles.recipientNewContinueBtn]}
             onPress={handleContinue}
             disabled={!canContinue}
           >
-            <Text style={{ fontSize: 18, fontWeight: "700", color: canContinue ? "#fff" : "#9CA3AF" }}>
-              Continue
-            </Text>
+            <Text style={canContinue ? otherstyles.primaryBtnText : styles.disabledBigBtnText}>Continue</Text>
           </Pressable>
+
+          <View style={{ height: 18 }} />
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Bank Picker Modal */}
+      {/* Bank Picker */}
       <BankPickerModal
         visible={showBankPicker}
         banks={banks}

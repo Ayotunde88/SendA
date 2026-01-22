@@ -6,7 +6,6 @@ import React from "react";
 import { View, Text, Pressable, Animated, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { PendingSettlement } from "../hooks/usePendingSettlements";
-import { COLORS } from "@/theme/colors";
 
 interface ConversionStatusBannerProps {
   settlements: PendingSettlement[];
@@ -77,7 +76,7 @@ export default function ConversionStatusBanner({
             <View style={styles.header}>
               <View style={styles.headerLeft}>
                 <View style={styles.pulsingDot} />
-                <Text style={styles.headerTitle}>Funds Settling</Text>
+                <Text style={styles.headerTitle}>Conversion Settling</Text>
               </View>
               <Text style={styles.timestamp}>{formatTime(settlement.createdAt)}</Text>
             </View>
@@ -132,7 +131,7 @@ export default function ConversionStatusBanner({
             <View style={styles.footer}>
               <Ionicons name="time-outline" size={12} color="#9CA3AF" />
               <Text style={styles.footerText}>
-                Banner will disappear once settlement completes
+                Balance will update once settlement completes
               </Text>
             </View>
 
@@ -141,7 +140,7 @@ export default function ConversionStatusBanner({
               <Pressable
                 style={styles.dismissButton}
                 onPress={() => onDismiss(settlement.id)}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 15 }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <Ionicons name="close" size={16} color="#9CA3AF" />
               </Pressable>
@@ -195,12 +194,8 @@ const styles = StyleSheet.create({
     color: "#1F2937",
   },
   timestamp: {
-    fontSize: 14,
+    fontSize: 12,
     color: "#9CA3AF",
-    position: "relative",
-    right: 50,
-    fontWeight: "600",
-    
   },
   statusContainer: {
     gap: 8,
@@ -236,10 +231,10 @@ const styles = StyleSheet.create({
   statusAmount: {
     fontSize: 15,
     fontWeight: "700",
-    color: COLORS.red,
+    color: "#EF4444",
   },
   creditAmount: {
-    color: COLORS.green,
+    color: "#22C55E",
   },
   arrowContainer: {
     flexDirection: "row",
@@ -273,8 +268,8 @@ const styles = StyleSheet.create({
     borderTopColor: "#F3F4F6",
   },
   footerText: {
-    fontSize: 13,
-    color: COLORS.gray,
+    fontSize: 11,
+    color: "#9CA3AF",
   },
   dismissButton: {
     position: "absolute",
