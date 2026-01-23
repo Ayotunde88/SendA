@@ -177,9 +177,31 @@ export default function AddAccountScreen() {
     try {
       const result = await createCurrencyAccount(userPhone, currency.code, currency.countryCode || "");
       if (result.success) {
-        Alert.alert("Success", "Account created successfully!");
-        router.back();
+        router.push({
+          pathname: "/result",
+          params: {
+            type: "success",
+            title: "Wallet Added",
+            message: `${currency.code} Wallet Added Successfully`,
+            primaryText: "Go Back",
+            primaryRoute: "/(tabs)",
+            secondaryText: "Add Another Wallet",
+            secondaryRoute: "/(tabs)",
+          },
+        });
       } else {
+        router.push({
+          pathname: "/result",
+          params: {
+            type: "Failure",
+            title: "Failed To Add Wallet",
+            message: `Failed To Add ${currency.code} Wallet`,
+            primaryText: "Go Back",
+            primaryRoute: "/(tabs)",
+            secondaryText: "Add Another Wallet",
+            secondaryRoute: "/(tabs)",
+          },
+        });
         Alert.alert("Error", result.message);
       }
     } catch (error) {

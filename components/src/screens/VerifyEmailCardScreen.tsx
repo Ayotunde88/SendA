@@ -3,6 +3,8 @@ import { View, Text, Pressable, Image } from "react-native";
 import { styles } from "../../../theme/styles";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Ionicons } from "@expo/vector-icons";
+import { COLORS } from "@/theme/colors";
 
 interface Props {
   onPress: () => void;
@@ -38,10 +40,15 @@ export default function VerifyEmailCardScreen({ onPress, email }: Props) {
         </Pressable>
       </View>
 
-      <Image
+      {/* <Image
         source={require("../../../assets/images/icons/email_sent.png")}
         style={styles.verifyCardIcon}
         resizeMode="contain"
+      /> */}
+      <Ionicons
+        name="mail"
+        size={22}
+        color={COLORS.primary}
       />
     </View>
   );

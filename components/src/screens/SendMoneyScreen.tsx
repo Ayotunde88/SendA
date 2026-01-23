@@ -17,7 +17,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, router } from "expo-router";
 import ScreenShell from "../../../components/ScreenShell";
 import CurrencyPill from "../../../components/CurrencyPill";
-import CurrencyPickerModal, { Wallet } from "../../../components/CurrencyPickerModal";
+import { Wallet } from "../../../components/CurrencyPickerModal"; // keep the type
 import { styles } from "../../../theme/styles";
 import {
   getUserWallets,
@@ -113,6 +113,9 @@ export default function SendMoneyScreen() {
   const [payoutDestinations, setPayoutDestinations] = useState<PayoutDestination[]>([]);
   const [selectedDestination, setSelectedDestination] = useState<PayoutDestination | null>(null);
   const [destinationSearch, setDestinationSearch] = useState("");
+
+  // ✅ From wallet picker search (so you have the same UX as destination picker)
+  const [fromSearch, setFromSearch] = useState("");
 
   useEffect(() => {
     AsyncStorage.getItem("user_phone").then((phone) => {
@@ -320,6 +323,15 @@ export default function SendMoneyScreen() {
       d.name.toLowerCase().includes(destinationSearch.toLowerCase())
   );
 
+  // ✅ Wallet filter for the From picker modal
+  const filteredWallets = wallets.filter((w) => {
+    const q = fromSearch.toLowerCase().trim();
+    if (!q) return true;
+    const code = String(w.currencyCode || "").toLowerCase();
+    const name = String((w as any)?.currencyName || (w as any)?.accountName || "").toLowerCase();
+    return code.includes(q) || name.includes(q);
+  });
+
   if (loading) {
     return (
       <ScreenShell>
@@ -345,10 +357,7 @@ export default function SendMoneyScreen() {
             </View>
           </View>
 
-          <Pressable
-            style={styles.primaryBtn}
-            onPress={() => router.push("/addaccount")}
-          >
+          <Pressable style={styles.primaryBtn} onPress={() => router.push("/addaccount")}>
             <Text style={{ color: "#fff", fontWeight: "bold", fontSize: 16 }}>+ Add Currency</Text>
           </Pressable>
         </View>
@@ -393,6 +402,7 @@ export default function SendMoneyScreen() {
                 style={[styles.amountInput, { fontSize: 28 }, balanceExceeded && { color: "#EF4444" }]}
               />
               <CurrencyPill
+                // We keep this for the pill, but the MODAL is now fixed to use rounded flags.
                 flag={(fromWallet as any)?.flag || "🏳️"}
                 code={fromWallet?.currencyCode || "Select"}
                 countryCode={getWalletCountryCode(fromWallet)}
@@ -456,7 +466,7 @@ export default function SendMoneyScreen() {
               {selectedDestination ? getPayoutMethodLabel(selectedDestination) : "Select destination"}
             </Text>
 
-            {/* Fee breakdown (prevents unused feeInfo + actually shows fees) */}
+            {/* Fee breakdown */}
             {feeInfo ? <FeeBreakdown {...({ feeInfo } as any)} /> : null}
           </View>
 
@@ -470,14 +480,109 @@ export default function SendMoneyScreen() {
             </Text>
           </Pressable>
 
-          <CurrencyPickerModal
-            visible={showFromPicker}
-            onClose={() => setShowFromPicker(false)}
-            wallets={wallets}
-            selected={fromWallet}
-            onSelect={setFromWallet}
-            title="Send From"
-          />
+          {/* ✅ FIXED: From Wallet Picker Modal now uses CountryFlag (rounded), not emoji */}
+          <Modal visible={showFromPicker} animationType="slide" transparent>
+            <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }}>
+              <Pressable
+                style={{ flex: 1 }}
+                onPress={() => {
+                  setShowFromPicker(false);
+                  setFromSearch("");
+                }}
+              />
+              <View
+                style={{
+                  backgroundColor: "#fff",
+                  borderTopLeftRadius: 24,
+                  borderTopRightRadius: 24,
+                  maxHeight: "70%",
+                  paddingBottom: 40,
+                }}
+              >
+                <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                    <Pressable
+                      onPress={() => {
+                        setShowFromPicker(false);
+                        setFromSearch("");
+                      }}
+                      style={{ width: 30, height: 30, justifyContent: "center", alignItems: "center" }}
+                    >
+                      <Text style={{ fontSize: 18, color: "#6B7280" }}>✕</Text>
+                    </Pressable>
+                    <Text style={{ fontSize: 18, fontWeight: "700", color: "#1F2937" }}>Send From</Text>
+                    <View style={{ width: 30 }} />
+                  </View>
+                </View>
+
+                <TextInput
+                  style={{
+                    marginHorizontal: 16,
+                    marginVertical: 12,
+                    backgroundColor: "#F3F4F6",
+                    borderRadius: 12,
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
+                    fontSize: 16,
+                    color: "#1F2937",
+                  }}
+                  placeholder="Search currency..."
+                  placeholderTextColor="#999"
+                  value={fromSearch}
+                  onChangeText={setFromSearch}
+                />
+
+                <FlatList
+                  data={filteredWallets}
+                  keyExtractor={(item) => String((item as any)?.id ?? item.currencyCode)}
+                  renderItem={({ item }) => {
+                    const selected = (fromWallet?.currencyCode || "").toUpperCase() === (item.currencyCode || "").toUpperCase();
+                    return (
+                      <Pressable
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          padding: 16,
+                          marginHorizontal: 16,
+                          marginBottom: 8,
+                          backgroundColor: selected ? "#F0FDF4" : "#F9FAFB",
+                          borderRadius: 12,
+                          borderWidth: selected ? 2 : 1,
+                          borderColor: selected ? "#16A34A" : "#E5E7EB",
+                        }}
+                        onPress={() => {
+                          setFromWallet(item);
+                          setShowFromPicker(false);
+                          setFromSearch("");
+                        }}
+                      >
+                        <CountryFlag
+                          currencyCode={item.currencyCode}
+                          fallbackEmoji={(item as any)?.flag}
+                          size="lg"
+                          style={{ marginRight: 12 }}
+                        />
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 16, fontWeight: "600", color: "#1F2937" }}>
+                            {item.currencyCode}
+                          </Text>
+                          <Text style={{ fontSize: 13, color: "#6B7280" }}>
+                            Balance: {item.formattedBalance || "0.00"} {item.currencyCode}
+                          </Text>
+                        </View>
+                        {selected && <Text style={{ fontSize: 18, color: "#16A34A", fontWeight: "700" }}>✓</Text>}
+                      </Pressable>
+                    );
+                  }}
+                  ListEmptyComponent={
+                    <Text style={{ textAlign: "center", color: "#9CA3AF", marginTop: 40, fontSize: 16 }}>
+                      No wallets found
+                    </Text>
+                  }
+                />
+              </View>
+            </View>
+          </Modal>
 
           {/* Destination Picker */}
           <Modal visible={showToPicker} animationType="slide" transparent>

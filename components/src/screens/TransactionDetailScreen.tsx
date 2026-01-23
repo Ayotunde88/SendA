@@ -47,7 +47,7 @@ export default function TransactionDetailScreen() {
   const getStatusColor = (status: string): string => {
     switch (status?.toLowerCase()) {
       case "completed":
-        return COLORS.green;
+        return COLORS.primary;
       case "pending":
       case "processing":
         return COLORS.yellow;
@@ -484,12 +484,12 @@ ${tx.feeAmount && tx.feeAmount > 0 ? `
                 </Text>
               </View>
             )}
-            {transaction.provider && (
+            {/* {transaction.provider && (
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Provider</Text>
                 <Text style={styles.detailValue}>{transaction.provider}</Text>
               </View>
-            )}
+            )} */}
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Date</Text>
               <Text style={styles.detailValue}>{formatDate(transaction.createdAt)}</Text>

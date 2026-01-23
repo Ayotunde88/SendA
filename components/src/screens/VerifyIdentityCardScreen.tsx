@@ -3,6 +3,8 @@ import { View, Text, Pressable, Image } from "react-native";
 import { styles } from "../../../theme/styles";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Ionicons } from "@expo/vector-icons";
+import { COLORS } from "@/theme/colors";
 
 interface Props {
   onPress: () => void;
@@ -38,11 +40,17 @@ export default function VerifyIdentityCardScreen({ onPress, userPhone }: Props) 
         </Pressable>
       </View>
 
-      <Image
+      {/* <Image
         source={require("../../../assets/images/icons/identity_verification.png")}
         style={styles.verifyCardIcon}
         resizeMode="contain"
+      /> */}
+      <Ionicons
+        name="person-circle-outline"
+        size={22}
+        color={COLORS.primary}
       />
+
     </View>
   );
 }

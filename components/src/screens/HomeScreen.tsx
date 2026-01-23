@@ -1068,7 +1068,7 @@ useEffect(() => {
             onRetry={() => fetchUserData(true)}
           />
 
-          {!loading && !isKycApproved && (
+          {!isKycApproved || !emailVerified?  (
             <View
               style={{
                 backgroundColor: "#FFF3CD",
@@ -1088,7 +1088,7 @@ useEffect(() => {
                 </Text>
               </View>
             </View>
-          )}
+          ) : ("")}
 
           {/* Top bar */}
           <View style={styles.topBar}>
@@ -1137,7 +1137,63 @@ useEffect(() => {
 
           {/* Accounts row */}
           {shouldShowWalletSkeleton ? (
-            <AccountsListSkeleton />
+            // <AccountsListSkeleton />
+            <Pressable
+                onPress={() => {
+                  // Handle add wallet press
+                  router.push("/addaccount");
+                }}
+
+                style={{ marginRight: 12, }}
+              >
+                <View
+                  style={{
+                    width: 210,
+                    height: 140,
+                    borderRadius: 16,
+                    backgroundColor: 'transparent',
+                    borderWidth: 1,
+                    borderColor: COLORS.green,
+                    justifyContent: "center",
+                    alignItems: "center",
+                    margin: 15,
+                    // subtle fintech shadow
+                    shadowColor: "#000",
+                    shadowOpacity: 0.06,
+                    shadowRadius: 8,
+                    shadowOffset: { width: 0, height: 4 },
+                    elevation: 2,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 52,
+                      height: 52,
+                      borderRadius: 26,
+                      backgroundColor: "rgba(22,163,74,0.12)",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      marginBottom: 8,
+                    }}
+                  >
+                    <Ionicons
+                      name="add"
+                      size={32}
+                      color={COLORS.primary}
+                    />
+                  </View>
+
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: "700",
+                      color: COLORS.primary,
+                    }}
+                  >
+                    Add wallet
+                  </Text>
+                </View>
+              </Pressable>
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.accountsRow}>
               {accounts.length === 0 ? (
@@ -1189,7 +1245,7 @@ useEffect(() => {
                     >
                       <LinearGradient
                         colors={
-                          a.currencyCode === "CAD" ? ["#1a9a63ff", "#1a9a63ff"] : ["#1a9a63ff", "#1a9a63ff"]
+                          a.currencyCode === "CAD" ? ["#2d2e2dff", "#1a9a63ff"] : ["#1a9a63ff", "#1a9a63ff"]
                           // a.currencyCode === "CAD" ? ["#3c3b3bff", "#3c3b3b"] : ["#19955f", "#19955f"]
                           
                         }
@@ -1244,7 +1300,7 @@ useEffect(() => {
                         )}
 
                         <Image
-                          source={require("../../../assets/images/icons/icons-icon.png")}
+                          source={require("../../../assets/images/icons/coins.png")}
                           style={styles.cardCornerImage}
                           resizeMode="contain"
                         />
@@ -1252,7 +1308,64 @@ useEffect(() => {
                     </Pressable>
                   );
                 })
+                
               )}
+              <Pressable
+                onPress={() => {
+                  // Handle add wallet press
+                  router.push("/addaccount");
+                }}
+
+                style={{ marginRight: 12, }}
+              >
+                <View
+                  style={{
+                    width: 210,
+                    height: 140,
+                    borderRadius: 16,
+                    backgroundColor: 'transparent',
+                    borderWidth: 1,
+                    borderColor: COLORS.green,
+                    justifyContent: "center",
+                    alignItems: "center",
+
+                    // subtle fintech shadow
+                    shadowColor: "#000",
+                    shadowOpacity: 0.06,
+                    shadowRadius: 8,
+                    shadowOffset: { width: 0, height: 4 },
+                    elevation: 2,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 52,
+                      height: 52,
+                      borderRadius: 26,
+                      backgroundColor: "rgba(22,163,74,0.12)",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      marginBottom: 8,
+                    }}
+                  >
+                    <Ionicons
+                      name="add"
+                      size={32}
+                      color={COLORS.primary}
+                    />
+                  </View>
+
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: "700",
+                      color: COLORS.primary,
+                    }}
+                  >
+                    Add wallet
+                  </Text>
+                </View>
+              </Pressable>
             </ScrollView>
           )}
 
@@ -1320,7 +1433,7 @@ useEffect(() => {
                 <View >
                   <View style={styles.recentEmptyIconCircle}>
                     <Ionicons
-                      name="add"
+                      name="people"
                       size={22}
                       color={COLORS.primary}
                     />
@@ -1334,7 +1447,7 @@ useEffect(() => {
               </Pressable>
             )}
           </View>
-
+          <Text style={[styles.sectionTitle, { marginTop: 18, paddingHorizontal: 16 }]}>Exchange Rates</Text>
           {/* FX block */}
           <View style={styles.fxCard}>
             <View style={styles.fxHeader}>
@@ -1351,6 +1464,8 @@ useEffect(() => {
               <ExchangeRatesSkeleton />
             ) : visibleRates.length === 0 ? (
               <View style={{ padding: 20, alignItems: "center" }}>
+                <Ionicons name="trending-up" size={40} color={COLORS.primary} />
+
                 <Text style={{ color: "#888", fontSize: 14, textAlign: "center" }}>
                   Add at least two currency accounts to see rates.
                 </Text>

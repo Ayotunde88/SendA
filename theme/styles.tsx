@@ -701,11 +701,11 @@ countryDial: {
 },
 accountCardGradient: {
   width: 210,
+  height: 140,
   borderRadius: 10,
   padding: 20,
   position: "relative", 
   overflow: "hidden",
-  height: 140,
 },
 addAccountSingle: {
   marginRight: 8,
