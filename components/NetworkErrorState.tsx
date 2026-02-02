@@ -1,36 +1,165 @@
-import React from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
-import { styles, } from "../theme/styles";
-import { otherstyles, } from "../theme/otherstyles";
+import NetInfo from "@react-native-community/netinfo";
+import { useRouter } from "expo-router";
+import { styles } from "../theme/styles";
+import { otherstyles } from "../theme/otherstyles";
 import { COLORS } from "../theme/colors";
+import { Ionicons } from "@expo/vector-icons";
 
 type Props = {
   title?: string;
   message?: string;
-  onRetry: () => void;
+  onRetry: () => Promise<void> | void;
   retrying?: boolean;
-  compact?: boolean; // use inside cards/sections
+  compact?: boolean;
+  autoBack?: boolean;
+  autoBackDelayMs?: number;
 };
 
 export default function NetworkErrorState({
   title = "No internet connection",
-  message = "Check your network and tap Refresh to try again.",
+  message = "Check your network and we’ll take you back automatically once it’s back.",
   onRetry,
-  retrying = false,
+  retrying: retryingProp,
   compact = false,
+  autoBack = true,
+  autoBackDelayMs = 200,
 }: Props) {
+  const router = useRouter();
+
+  const [retrying, setRetrying] = useState<boolean>(retryingProp ?? true);
+
+  const backTimerRef = useRef<any>(null);
+  const isMountedRef = useRef(true);
+  const hasAutoBackTriggeredRef = useRef(false);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (backTimerRef.current) clearTimeout(backTimerRef.current);
+    };
+  }, []);
+
+  const safeGoBack = useCallback(() => {
+    // ✅ GO BACK to the previous page (exactly what you asked)
+    // @ts-ignore
+    if (router.canGoBack?.()) {
+      router.back();
+      return;
+    }
+    // fallback if there is no history (rare)
+    router.replace("/" as any);
+  }, [router]);
+
+  const checkReachable = useCallback(async () => {
+    const latest = await NetInfo.fetch();
+
+    const ok = Boolean(latest.isConnected && latest.isInternetReachable !== false);
+
+    // Some phones report isInternetReachable as null/unknown.
+    // If connected, treat it as reachable.
+    const reachable = ok || (Boolean(latest.isConnected) && latest.isInternetReachable == null);
+
+    return reachable;
+  }, []);
+
+  const runRetryThenBack = useCallback(async () => {
+    if (hasAutoBackTriggeredRef.current) return;
+    hasAutoBackTriggeredRef.current = true;
+
+    try {
+      if (isMountedRef.current) setRetrying(true);
+
+      // ✅ call retry so the previous screen can refresh data
+      await onRetry?.();
+
+      // ✅ go back after successful retry
+      router.back();
+      safeGoBack();
+    } catch {
+      // If retry fails, allow future auto attempts again
+      hasAutoBackTriggeredRef.current = false;
+      if (isMountedRef.current) setRetrying(false);
+    }
+  }, [onRetry, safeGoBack]);
+
+  // ✅ Auto back when network comes back
+  useEffect(() => {
+    if (!autoBack) return;
+
+    const unsub = NetInfo.addEventListener((state) => {
+      const ok = Boolean(state.isConnected && state.isInternetReachable !== false);
+      const reachable = ok || (Boolean(state.isConnected) && state.isInternetReachable == null);
+
+      if (reachable) {
+        // debounce to avoid flapping
+        if (backTimerRef.current) clearTimeout(backTimerRef.current);
+
+        backTimerRef.current = setTimeout(async () => {
+          const stillReachable = await checkReachable();
+          if (stillReachable) {
+            await runRetryThenBack();
+          }
+        }, autoBackDelayMs);
+      } else {
+        // if we lose network again, allow auto back to trigger later
+        hasAutoBackTriggeredRef.current = false;
+        if (isMountedRef.current) setRetrying(false);
+      }
+    });
+
+    // Also do an immediate check on mount (in case network is already back)
+    (async () => {
+      const reachable = await checkReachable();
+      if (reachable) {
+        router.back();
+        await runRetryThenBack();
+      }
+    })();
+
+    return () => {
+      unsub();
+      if (backTimerRef.current) clearTimeout(backTimerRef.current);
+    };
+  }, [autoBack, autoBackDelayMs, checkReachable, runRetryThenBack]);
+
+  const handleManualRetry = useCallback(async () => {
+    if (retrying) return;
+
+    setRetrying(true);
+    try {
+      // await onRetry?.();
+
+      // If retry worked and network is ok, go back
+      const reachable = await checkReachable();
+      if (reachable) {
+        router.back(); 
+        safeGoBack();
+      } else setRetrying(false);
+    } catch {
+      setRetrying(false);
+    }
+  }, [retrying, onRetry, checkReachable, safeGoBack]);
+
   return (
     <View style={[otherstyles.netErrWrap, compact && otherstyles.netErrWrapCompact]}>
       <View style={otherstyles.netErrIconCircle}>
-        <Text style={otherstyles.netErrIcon}>📶</Text>
+        {/* ✅ Icon instead of emoji */}
+        <Ionicons name="wifi-outline" size={22} color={COLORS.primary} />
       </View>
 
       <Text style={otherstyles.netErrTitle}>{title}</Text>
       <Text style={otherstyles.netErrMessage}>{message}</Text>
 
       <Pressable
-        onPress={onRetry}
-        style={[styles.primaryBtn, otherstyles.netErrBtn]}
+        onPress={handleManualRetry}
+        style={[
+          styles.primaryBtn,
+          otherstyles.netErrBtn,
+          { opacity: retrying ? 0.7 : 1 },
+        ]}
         disabled={retrying}
       >
         {retrying ? (

@@ -29,7 +29,7 @@ import { SavedRecipient } from "./RecipientSelectScreen";
 
 const SAVED_RECIPIENTS_KEY = "saved_recipients";
 
-/** ---------------- Bank Picker Modal ---------------- **/
+/** ---------------- Bank Picker Modal (OLD STYLING) ---------------- **/
 function BankPickerModal({
   visible,
   banks,
@@ -53,7 +53,7 @@ function BankPickerModal({
     if (banksLoading) return [];
     const q = searchQuery.trim().toLowerCase();
     if (!q) return banks;
-    return banks.filter((b) => b.name.toLowerCase().includes(q));
+    return banks.filter((b) => (b.name || "").toLowerCase().includes(q));
   }, [banks, banksLoading, searchQuery]);
 
   return (
@@ -127,7 +127,7 @@ function BankPickerModal({
   );
 }
 
-/** ---------------- Screen ---------------- **/
+/** ---------------- Screen (OLD LAYOUT + NEW FEATURES) ---------------- **/
 export default function RecipientNewScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
@@ -150,7 +150,7 @@ export default function RecipientNewScreen() {
 
   const [userPhone, setUserPhone] = useState("");
 
-  // Bank data
+  // Bank data (dynamic by country)
   const [banks, setBanks] = useState<Bank[]>([]);
   const [banksLoading, setBanksLoading] = useState(true);
 
@@ -175,16 +175,17 @@ export default function RecipientNewScreen() {
     });
   }, []);
 
-  // Load banks for the destination country
+  // Load banks for destination country (NEW FEATURE, OLD UI)
   useEffect(() => {
     const loadBanks = async () => {
       setBanksLoading(true);
       try {
         const bankList = await getBanksByCountry(countryCode);
-        setBanks(bankList);
+        setBanks(Array.isArray(bankList) ? bankList : []);
       } catch (e) {
         console.error(`Failed to load ${countryName} banks:`, e);
         Alert.alert("Error", `Failed to load ${countryName} banks. Please try again.`);
+        setBanks([]);
       } finally {
         setBanksLoading(false);
       }
@@ -193,26 +194,32 @@ export default function RecipientNewScreen() {
     loadBanks();
   }, [countryCode, countryName]);
 
-  // Reset verification when bank/account changes
+  // Reset verification when bank/account changes (keep old behavior + fix)
   useEffect(() => {
     setIsVerified(false);
     if (isNigeria) setAccountName("");
   }, [selectedBank?.code, accountNumber, isNigeria]);
 
-  // Verify account (NG auto verifies)
+  // Verify account (NG auto-verifies, others manual confirm)
   const handleVerifyAccount = useCallback(async () => {
-    if (!selectedBank || accountNumber.length < 10) {
+    if (!selectedBank || accountNumber.length < 6) {
       Alert.alert("Invalid input", "Please select a bank and enter a valid account number.");
       return;
     }
 
-    // Non-NG: manual (we just mark verified if name exists)
+    // Non-NG countries: manual confirm (no API verify)
     if (!isNigeria) {
       if (!accountName.trim()) {
         Alert.alert("Recipient name required", "Please enter the recipient's name.");
         return;
       }
       setIsVerified(true);
+      return;
+    }
+
+    // NG: only verify when at least 10 digits
+    if (accountNumber.length < 10) {
+      Alert.alert("Incomplete", "Nigerian account numbers require 10 digits.");
       return;
     }
 
@@ -239,7 +246,7 @@ export default function RecipientNewScreen() {
     }
   }, [selectedBank, accountNumber, accountName, isNigeria]);
 
-  // Auto-verify for NG when 10 digits
+  // Auto-verify for NG when 10 digits (NEW FEATURE)
   useEffect(() => {
     if (isNigeria && accountNumber.length === 10 && selectedBank && !isVerified && !verifying) {
       handleVerifyAccount();
@@ -258,8 +265,17 @@ export default function RecipientNewScreen() {
     }
 
     // Non-NG: allow manual confirm state
-    if (!isNigeria && !isVerified) setIsVerified(true);
+    if (!isNigeria && !isVerified) {
+      setIsVerified(true);
+    }
 
+    // NG: block continue if not verified and not verifying
+    if (isNigeria && !isVerified) {
+      Alert.alert("Not verified", "Please wait for verification to complete.");
+      return;
+    }
+
+    // Save recipient if checked (same as old)
     if (saveRecipient) {
       try {
         const existingData = await AsyncStorage.getItem(SAVED_RECIPIENTS_KEY);
@@ -308,11 +324,12 @@ export default function RecipientNewScreen() {
     });
   };
 
+  // Can continue rules (old + correct for NG)
   const canContinue =
     !!selectedBank &&
     accountNumber.trim().length >= 6 &&
     accountName.trim().length > 0 &&
-    (!isNigeria ? true : isVerified || verifying); // NG: allow continue after verified (or while verifying if it will finish)
+    (!isNigeria ? isVerified || true : isVerified || verifying);
 
   const formattedSendAmount = `${symbol}${toAmountRaw.toLocaleString("en-US", {
     minimumFractionDigits: 2,
@@ -327,7 +344,7 @@ export default function RecipientNewScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Header */}
+          {/* Header (OLD) */}
           <View style={otherstyles.confirmHeader}>
             <Pressable onPress={() => router.back()} style={otherstyles.backBtn}>
               <Text style={otherstyles.backIcon}>←</Text>
@@ -341,7 +358,7 @@ export default function RecipientNewScreen() {
             <View style={otherstyles.confirmHeaderRight} />
           </View>
 
-          {/* Summary Card */}
+          {/* Summary Card (OLD) */}
           <View style={otherstyles.recipientNewSummaryCard}>
             <Text style={otherstyles.recipientNewSummaryLabel}>Sending</Text>
             <Text style={otherstyles.recipientNewSummaryAmount} numberOfLines={1}>
@@ -358,20 +375,25 @@ export default function RecipientNewScreen() {
             </View>
           </View>
 
-          {/* Bank */}
+          {/* Bank (OLD UI, dynamic banks) */}
           <Text style={otherstyles.recipientNewLabel}>Select bank</Text>
           <Pressable
             style={otherstyles.recipientNewSelect}
             onPress={() => setShowBankPicker(true)}
             disabled={banksLoading}
           >
-            <Text style={[otherstyles.recipientNewSelectText, !selectedBank && otherstyles.recipientNewSelectPlaceholder]}>
+            <Text
+              style={[
+                otherstyles.recipientNewSelectText,
+                !selectedBank && otherstyles.recipientNewSelectPlaceholder,
+              ]}
+            >
               {selectedBank?.name || (banksLoading ? "Loading banks…" : "Tap to select bank")}
             </Text>
             <Text style={otherstyles.recipientNewSelectChevron}>›</Text>
           </Pressable>
 
-          {/* Account Number */}
+          {/* Account Number (OLD UI + keeps verification pill/spinner) */}
           <Text style={otherstyles.recipientNewLabel}>Account number</Text>
           <View style={otherstyles.recipientNewInputBox}>
             <TextInput
@@ -395,18 +417,18 @@ export default function RecipientNewScreen() {
             ) : null}
           </View>
 
-          {/* Helper row */}
+          {/* Helper row (OLD but updated message) */}
           {isNigeria ? (
             <Text style={otherstyles.recipientNewHelpText}>
               We’ll auto-verify Nigerian accounts once you enter 10 digits.
             </Text>
           ) : (
             <Text style={otherstyles.recipientNewHelpText}>
-              For {countryName}, enter the recipient name manually.
+              For {countryName}, enter the recipient name manually and confirm the details.
             </Text>
           )}
 
-          {/* Recipient Name */}
+          {/* Recipient Name (OLD UI) */}
           <Text style={otherstyles.recipientNewLabel}>Recipient name</Text>
           <View
             style={[
@@ -419,19 +441,23 @@ export default function RecipientNewScreen() {
               placeholder={isNigeria ? "Auto-filled after verification" : "Enter recipient name"}
               placeholderTextColor="#9CA3AF"
               value={accountName}
-              onChangeText={setAccountName}
+              onChangeText={(t) => {
+                setAccountName(t);
+                if (!isNigeria) setIsVerified(false); // non-NG: changing name means re-confirm
+              }}
               editable={!isNigeria || !isVerified}
+              autoCapitalize="words"
             />
           </View>
 
-          {/* Manual confirm (Non-NG) */}
+          {/* Manual confirm (Non-NG) (NEW FEATURE, OLD BUTTON STYLE) */}
           {!isNigeria && accountNumber.length >= 6 && accountName.trim() && !isVerified ? (
             <Pressable style={otherstyles.recipientNewSoftBtn} onPress={() => setIsVerified(true)}>
               <Text style={otherstyles.recipientNewSoftBtnText}>✓ Confirm recipient details</Text>
             </Pressable>
           ) : null}
 
-          {/* Save recipient toggle */}
+          {/* Save recipient toggle (OLD) */}
           <Pressable style={otherstyles.recipientNewSaveRow} onPress={() => setSaveRecipient((v) => !v)}>
             <View style={[otherstyles.recipientNewCheckbox, saveRecipient && otherstyles.recipientNewCheckboxOn]}>
               {saveRecipient ? <Text style={otherstyles.recipientNewCheckboxTick}>✓</Text> : null}
@@ -439,7 +465,7 @@ export default function RecipientNewScreen() {
             <Text style={otherstyles.recipientNewSaveText}>Save this recipient for future transfers</Text>
           </Pressable>
 
-          {/* Continue */}
+          {/* Continue (OLD) */}
           <Pressable
             style={[otherstyles.primaryBtn, !canContinue && styles.disabledBigBtn, otherstyles.recipientNewContinueBtn]}
             onPress={handleContinue}
@@ -452,12 +478,15 @@ export default function RecipientNewScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Bank Picker */}
+      {/* Bank Picker (OLD MODAL UI) */}
       <BankPickerModal
         visible={showBankPicker}
         banks={banks}
         banksLoading={banksLoading}
-        onSelect={setSelectedBank}
+        onSelect={(b) => {
+          setSelectedBank(b);
+          setBankSearchQuery("");
+        }}
         onClose={() => setShowBankPicker(false)}
         searchQuery={bankSearchQuery}
         setSearchQuery={setBankSearchQuery}

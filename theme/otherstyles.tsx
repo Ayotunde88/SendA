@@ -848,5 +848,69 @@ primaryBtn: {
     color: "#19955f",
   },
 
+netErrBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+  },
+  netErrBackdropTap: {
+    ...StyleSheet.absoluteFillObject,
+  },
 
+  // Modal card
+  netErrModalCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 18,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
+  netErrModalCardCompact: {
+    padding: 14,
+  },
+
+  netErrModalHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+
+  netErrCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F3F4F6",
+  },
+  netErrCloseText: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#374151",
+  },
+
+  // Reuse your existing ones if you already have them:
+  netErrIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 999,
+    backgroundColor: "#F0FDF4",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  netErrIcon: { fontSize: 20 },
+
+  netErrTitle: { fontSize: 16, fontWeight: "900", color: "#111827", marginTop: 4 },
+  netErrMessage: { marginTop: 6, color: "#6B7280", fontWeight: "600", lineHeight: 20 },
+
+  netErrBtn: { marginTop: 14, borderRadius: 12 },
+  netErrBtnRow: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
+  netErrBtnText: { color: "#fff", fontWeight: "900", fontSize: 16, marginLeft: 10 },
+
+  netErrHint: { marginTop: 12, color: "#9CA3AF", fontWeight: "700", fontSize: 12 },
 });

@@ -105,6 +105,7 @@ function RootLayoutContent() {
       <Stack.Screen name="verifynumber" options={{ title: "Verify Number" }} />
       <Stack.Screen name="transaction-pin" options={{ title: "Transaction PIN" }} />
       <Stack.Screen name="wallet" options={{ title: "" }} />
+      <Stack.Screen name="wallet/[phone]" options={{ title: "" }} />
       <Stack.Screen name="ngn-wallet" options={{ title: "" }} />
       <Stack.Screen name="send-money" options={{ title: "Send money" }} />
       <Stack.Screen name="add-money-methods" options={{ title: "" }} />

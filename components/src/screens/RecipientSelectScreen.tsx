@@ -7,6 +7,7 @@ import { styles } from "../../../theme/styles";
 import { otherstyles } from "../../../theme/otherstyles";
 import { COLORS } from "../../../theme/colors";
 import { isFlutterwaveCurrency, COUNTRY_NAMES, CURRENCY_TO_COUNTRY } from "../../../api/flutterwave";
+import { getRecentRecipientsFromDB, RecentRecipientFromDB } from "@/api/sync";
 
 export interface SavedRecipient {
   id: string;
@@ -19,22 +20,10 @@ export interface SavedRecipient {
   createdAt: number;
 }
 
-const SAVED_RECIPIENTS_KEY = "saved_recipients";
-
-async function getSavedRecipients(currency?: string): Promise<SavedRecipient[]> {
-  try {
-    const data = await AsyncStorage.getItem(SAVED_RECIPIENTS_KEY);
-    const parsed = data ? JSON.parse(data) : [];
-    const recipients: SavedRecipient[] = Array.isArray(parsed) ? parsed : [];
-
-    if (currency) {
-      const c = String(currency).toUpperCase().trim();
-      return recipients.filter((r) => String(r.currency || "").toUpperCase().trim() === c);
-    }
-    return recipients;
-  } catch {
-    return [];
-  }
+// normalize expo-router param: string | string[] | undefined -> string
+function asString(v: string | string[] | undefined) {
+  if (Array.isArray(v)) return v[0] ?? "";
+  return v ?? "";
 }
 
 function getInitials(name: string) {
@@ -48,10 +37,24 @@ function getInitials(name: string) {
     .join("");
 }
 
-// normalize expo-router param: string | string[] | undefined -> string
-function asString(v: string | string[] | undefined) {
-  if (Array.isArray(v)) return v[0] ?? "";
-  return v ?? "";
+// ✅ Normalize DB/API responses into an array safely (handles null too)
+function normalizeRecipients(input: unknown): RecentRecipientFromDB[] {
+  if (Array.isArray(input)) return input as RecentRecipientFromDB[];
+
+  if (input && typeof input === "object") {
+    const obj = input as any;
+    if (Array.isArray(obj.recipients)) return obj.recipients as RecentRecipientFromDB[];
+    if (Array.isArray(obj.data)) return obj.data as RecentRecipientFromDB[];
+    if (Array.isArray(obj.items)) return obj.items as RecentRecipientFromDB[];
+  }
+
+  return [];
+}
+
+// ✅ Safe currency getter (in case backend uses different field names)
+function getRecipientCurrency(r: any): string {
+  const cur = r?.destCurrency ?? r?.currency ?? r?.toCurrency;
+  return typeof cur === "string" ? cur.toUpperCase().trim() : "";
 }
 
 export default function RecipientSelectScreen() {
@@ -77,28 +80,49 @@ export default function RecipientSelectScreen() {
   }, [raw.destCurrency, raw.fromWalletId, raw.fromCurrency, raw.fromAmount, raw.toAmount, raw.rate]);
 
   const destCurrency = (navParams.destCurrency || "NGN").toUpperCase().trim();
-  const countryCode = CURRENCY_TO_COUNTRY[destCurrency] || "NG";
+  const countryCode = (CURRENCY_TO_COUNTRY[destCurrency] || "NG").toUpperCase();
   const countryName = COUNTRY_NAMES[countryCode] || countryCode;
   const isFlutterwave = isFlutterwaveCurrency(destCurrency);
 
   const [search, setSearch] = useState("");
-  const [saved, setSaved] = useState<SavedRecipient[]>([]);
+
+  // ✅ Use ONE loading flag for this screen (you had loadingSaved but never updated it)
   const [loadingSaved, setLoadingSaved] = useState(true);
+
+  const [saved, setSaved] = useState<RecentRecipientFromDB[]>([]);
 
   useEffect(() => {
     let mounted = true;
     setLoadingSaved(true);
 
-    getSavedRecipients(destCurrency)
-      .then((list) => {
+    (async () => {
+      try {
+        const phone = await AsyncStorage.getItem("user_phone");
+        if (!phone || !mounted) {
+          if (mounted) setSaved([]);
+          return;
+        }
+
+        const rawRecipients = await getRecentRecipientsFromDB(phone);
         if (!mounted) return;
-        // newest first
-        const sorted = [...list].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-        setSaved(sorted);
-      })
-      .finally(() => {
+
+        // ✅ normalize (handles null / object / array)
+        const recipientsArr = normalizeRecipients(rawRecipients);
+
+        // ✅ filter safely by destination currency
+        const filtered = recipientsArr.filter((r: any) => {
+          const rCur = getRecipientCurrency(r);
+          return rCur && rCur === destCurrency;
+        });
+
+        setSaved(filtered);
+      } catch (err) {
+        console.error("Failed to load recipients from DB:", err);
+        if (mounted) setSaved([]);
+      } finally {
         if (mounted) setLoadingSaved(false);
-      });
+      }
+    })();
 
     return () => {
       mounted = false;
@@ -106,28 +130,27 @@ export default function RecipientSelectScreen() {
   }, [destCurrency]);
 
   // Redirect CAD to EFT screen
-  useEffect(() => {
-    if (destCurrency === "CAD") {
-      router.replace({
-        pathname: "/eft-bank-details" as any,
-        params: navParams as any,
-      });
-    }
-  }, [destCurrency, navParams]);
+  // useEffect(() => {
+  //   if (destCurrency === "CAD") {
+  //     router.replace({
+  //       pathname: "/eft-bank-details" as any,
+  //       params: navParams as any,
+  //     });
+  //   }
+  // }, [destCurrency, navParams]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return saved;
 
-    return saved.filter((r) => {
-      const name = String(r.accountName || "").toLowerCase();
-      const bank = String(r.bankName || "").toLowerCase();
-      const acct = String(r.accountNumber || "");
+    return saved.filter((r: any) => {
+      const name = String(r?.accountName || "").toLowerCase();
+      const bank = String(r?.bankName || "").toLowerCase();
+      const acct = String(r?.accountNumber || "");
       return name.includes(q) || bank.includes(q) || acct.includes(q);
     });
   }, [search, saved]);
 
-  // If not a Flutterwave currency (e.g., CAD), show loading while redirecting
   if (!isFlutterwave) {
     return (
       <ScreenShell>
@@ -234,31 +257,39 @@ export default function RecipientSelectScreen() {
             </View>
           ) : (
             <View style={otherstyles.recipientSelectCard}>
-              {filtered.map((r, idx) => (
-                <View key={r.id}>
+              {filtered.map((r: any, idx: number) => (
+                <View key={`${r?.id || ""}-${r?.bankCode || ""}-${r?.accountNumber || ""}-${idx}`}>
                   <Pressable
-                    onPress={() =>
+                    onPress={() => {
+                      // ensure recipient payload always includes currency + countryCode
+                      const rCurrency = getRecipientCurrency(r) || destCurrency;
+                      const cc = (CURRENCY_TO_COUNTRY[rCurrency] || countryCode || "NG").toUpperCase();
+
                       router.push({
                         pathname: "/recipientconfirm" as any,
                         params: {
                           ...navParams,
-                          recipient: JSON.stringify(r),
+                          recipient: JSON.stringify({
+                            ...r,
+                            destCurrency: rCurrency,
+                            countryCode: cc,
+                          }),
                           mode: "saved",
                         } as any,
-                      })
-                    }
+                      });
+                    }}
                     style={otherstyles.recipientSelectRow}
                   >
                     <View style={otherstyles.recipientSelectAvatarCircle}>
-                      <Text style={otherstyles.recipientSelectAvatarText}>{getInitials(r.accountName)}</Text>
+                      <Text style={otherstyles.recipientSelectAvatarText}>{getInitials(r?.accountName)}</Text>
                     </View>
 
                     <View style={otherstyles.recipientSelectRowInfo}>
                       <Text style={otherstyles.recipientSelectRowName} numberOfLines={1}>
-                        {r.accountName}
+                        {r?.accountName || "Unknown"}
                       </Text>
                       <Text style={otherstyles.recipientSelectRowSub} numberOfLines={1}>
-                        {r.bankName} • {r.accountNumber}
+                        {r?.bankName || "—"} • {String(r?.accountNumber || "—")}
                       </Text>
                     </View>
 

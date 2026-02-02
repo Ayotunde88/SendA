@@ -3675,5 +3675,136 @@ recentEmptyBtnText: {
   color: "#19955f",
 },
 
+referralBanner: {
+  width: "93%",
+  margin: 12,
+  backgroundColor: "#28b085ff",
+  borderRadius: 10,
+  padding: 16,
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "space-between",
+
+  shadowColor: "#000",
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.06,
+  shadowRadius: 6,
+  elevation: 3,
+},
+
+referralLeft: {
+  flexDirection: "row",
+  alignItems: "center",
+},
+
+referralIconWrap: {
+  width: 40,
+  height: 40,
+  borderRadius: 20,
+  backgroundColor: "rgba(255, 255, 255, 1)",
+  alignItems: "center",
+  justifyContent: "center",
+  marginRight: 12,
+},
+
+referralTitle: {
+  fontSize: 15,
+  fontWeight: "800",
+  color: "#ffffffff",
+},
+
+referralSubtitle: {
+  fontSize: 13,
+  color: "#ffffffff",
+  marginTop: 2,
+},
+
+refHowCard: {
+  backgroundColor: "#FFFFFF",
+  borderRadius: 14,
+  padding: 16,
+  borderWidth: 1,
+  borderColor: "#EEF2F7",
+  shadowColor: "#000",
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.06,
+  shadowRadius: 6,
+  elevation: 3,
+},
+
+refHowHeader: {
+  flexDirection: "row",
+  alignItems: "center",
+  marginBottom: 12,
+},
+
+refHowIconCircle: {
+  width: 34,
+  height: 34,
+  borderRadius: 17,
+  backgroundColor: "rgba(25,149,95,0.12)",
+  alignItems: "center",
+  justifyContent: "center",
+  marginRight: 10,
+},
+
+refHowTitle: {
+  fontSize: 15,
+  fontWeight: "900",
+  color: "#111827",
+},
+
+refStepRow: {
+  flexDirection: "row",
+  alignItems: "flex-start",
+  marginTop: 10,
+},
+
+refStepBadge: {
+  width: 24,
+  height: 24,
+  borderRadius: 12,
+  backgroundColor: "#111827",
+  alignItems: "center",
+  justifyContent: "center",
+  marginRight: 10,
+  marginTop: 1,
+},
+
+refStepBadgeText: {
+  color: "#FFFFFF",
+  fontSize: 12,
+  fontWeight: "900",
+},
+
+refStepText: {
+  flex: 1,
+  color: "#374151",
+  fontSize: 13,
+  lineHeight: 19,
+  fontWeight: "600",
+},
+
+refRuleDivider: {
+  height: 1,
+  backgroundColor: "#F1F5F9",
+  marginTop: 14,
+},
+
+refRuleRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  marginTop: 12,
+},
+
+refRuleText: {
+  flex: 1,
+  marginLeft: 10,
+  color: "#6B7280",
+  fontSize: 13,
+  lineHeight: 18,
+  fontWeight: "600",
+},
+
 
 })

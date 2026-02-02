@@ -338,6 +338,32 @@ export async function setPassword(phone: string, password: string) {
   return res.json();
 }
 
+export async function getMyReferralCode(token: string): Promise<{
+  success: boolean;
+  referral_code?: string;
+  referral_link?: string;
+  message?: string;
+}> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/referrals/my-code`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    const data = await res.json();
+    return {
+      success: res.ok,
+      referral_code: data.referral_code,
+      referral_link: data.referral_link,
+      message: data.message,
+    };
+  } catch (error) {
+    console.error("Failed to fetch referral code:", error);
+    return { success: false, message: "Failed to fetch referral code" };
+  }
+}
 export async function applyReferralCode(phone: string, referral_code: string) {
   const res = await fetch(`${API_BASE_URL}/users/referral`, {
     method: "POST",

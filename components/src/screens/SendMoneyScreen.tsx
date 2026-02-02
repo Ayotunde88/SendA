@@ -299,7 +299,7 @@ export default function SendMoneyScreen() {
     }
 
     router.push({
-      pathname: "/recipientselect" as any,
+      pathname: "/recipientselect" ,
       params: {
         destCurrency: selectedDestination.code,
         fromWalletId: String(fromWallet.id),
@@ -428,7 +428,7 @@ export default function SendMoneyScreen() {
             {rate && selectedDestination ? (
               <Text style={styles.muted}>
                 1 {fromWallet?.currencyCode} ={" "}
-                {selectedDestination.code === "NGN" ? rate.toFixed(0) : rate.toFixed(2)}{" "}
+                {selectedDestination.code === "NGN" ? rate.toFixed(0) : rate.toFixed(4)}{" "}
                 {selectedDestination.code}
               </Text>
             ) : quoteLoading ? (
@@ -467,7 +467,17 @@ export default function SendMoneyScreen() {
             </Text>
 
             {/* Fee breakdown */}
-            {feeInfo ? <FeeBreakdown {...({ feeInfo } as any)} /> : null}
+            {feeInfo ? (
+              <FeeBreakdown
+                fee={feeInfo}
+                sellAmount={Number(fromAmount) || 0}      // <-- source amount (you pay)
+                sellCurrency={fromWallet?.currencyCode || ""}              // <-- your source currency
+                buyAmount={Number(toAmount) || 0}        // <-- your destination amount
+                buyCurrency={selectedDestination?.code || ""}               // <-- your destination currency
+                rate={rate ? Number(rate) : null}        // <-- your quote rate
+              />
+            ) : null}
+
           </View>
 
           <Pressable

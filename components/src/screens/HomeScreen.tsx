@@ -1,51 +1,56 @@
-import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
+/**
+ * HomeScreen.tsx
+ * - Refreshes like “reloaded” whenever user comes back (back button) using useFocusEffect
+ * - Uses USER-SCOPED cache to prevent flicker-to-zero
+ * - If balances cannot be fetched due to slow/no network (and no usable cache), redirects to /networkerrorstate
+ * - NO LinearGradient (plain fintech cards)
+ */
+
 import {
-  View,
-  Text,
-  Pressable,
-  Alert,
-  RefreshControl,
-  Image,
+  checkEmailVerified,
+  createPlaidIdvSession,
+  getExchangeRates,
+  getHistoricalRates,
+  getPublicCurrencies,
+  getTotalBalance,
+  getUserAccounts,
+  getUserProfile,
+  sendEmailOtp,
+} from "@/api/config";
+import { getRecentRecipientsFromDB, RecentRecipientFromDB } from "@/api/sync";
+import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import NetInfo from "@react-native-community/netinfo";
+import { useFocusEffect, useRouter } from "expo-router";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
   ActivityIndicator,
-  LayoutChangeEvent,
+  Alert,
   Animated,
   Easing,
+  Image,
+  LayoutChangeEvent,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Text,
+  View,
 } from "react-native";
-import { useRouter, useFocusEffect } from "expo-router";
-import { ScrollView } from "react-native";
-import ScreenShell from "./../../ScreenShell";
-import PrimaryButton from "./../../PrimaryButton";
-import OutlineButton from "./../../OutlineButton";
-import BottomSheet from "./../../BottomSheet";
-import { styles } from "../../../theme/styles";
-import { COLORS } from "../../../theme/colors";
-import { LinearGradient } from "expo-linear-gradient";
-import VerifyEmailCard from "../../../components/src/screens/VerifyEmailCardScreen";
-import VerifyIdentityCardScreen from "./VerifyIdentityCardScreen";
 import { SafeAreaView } from "react-native-safe-area-context";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { userScopedKey } from "../../../utils/cacheKeys";
-import { clearLegacyCaches, clearUserScopedCaches, hasLegacyCaches } from "../../../utils/cacheUtils";
-import NetInfo from "@react-native-community/netinfo";
-import {
-  sendEmailOtp,
-  getUserProfile,
-  getUserAccounts,
-  getPublicCurrencies,
-  getExchangeRates,
-  getTotalBalance,
-  createPlaidIdvSession,
-  checkEmailVerified,
-  getHistoricalRates
-} from "@/api/config";
+import Svg, { Circle, Defs, Path, Stop, LinearGradient as SvgGradient } from "react-native-svg";
 import { getLocalBalance } from "../../../api/flutterwave";
-import { Ionicons } from "@expo/vector-icons";
-import Svg, { Path, Defs, LinearGradient as SvgGradient, Stop, Circle } from "react-native-svg";
-import { usePendingSettlements } from "../../../hooks/usePendingSettlements";
-import { PendingBadge } from "../../../components/PendingBadge";
 import CountryFlag from "../../../components/CountryFlag";
-import { useSyncedWallets } from "@/hooks/useSyncedWallets";
-
+import { PendingBadge } from "../../../components/PendingBadge";
+import VerifyEmailCard from "../../../components/src/screens/VerifyEmailCardScreen";
+import { usePendingSettlements } from "../../../hooks/usePendingSettlements";
+import { COLORS } from "../../../theme/colors";
+import { styles } from "../../../theme/styles";
+import { userScopedKey } from "../../../utils/cacheKeys";
+import BottomSheet from "./../../BottomSheet";
+import OutlineButton from "./../../OutlineButton";
+import PrimaryButton from "./../../PrimaryButton";
+import ScreenShell from "./../../ScreenShell";
+import VerifyIdentityCardScreen from "./VerifyIdentityCardScreen";
 
 /** ---------------- Types ---------------- **/
 type Country = {
@@ -57,6 +62,7 @@ type Country = {
   currencyCode?: string;
   currencyEnabled?: boolean;
 };
+
 type UserAccount = {
   id: string;
   currencyCode: string;
@@ -77,6 +83,7 @@ type UserAccount = {
     is_exotic?: boolean;
   } | null;
 };
+
 type DisplayRate = {
   from: string;
   to: string;
@@ -86,42 +93,33 @@ type DisplayRate = {
   change: string;
   numericRate: number;
 };
+
 type HistoricalPoint = { date: string; timestamp: number; rate: number };
 type RangeKey = "1D" | "5D" | "1M" | "1Y" | "5Y" | "MAX";
 
-type SavedRecipient = {
-  id: string;
-  accountName: string;
-  accountNumber: string;
-  bankCode: string;
-  bankName: string;
-  createdAt: number;
-};
+// RecentRecipient type now comes from API
+type RecentRecipient = RecentRecipientFromDB;
 
-
-// In HomeScreen.tsx - add at the top of the component:
-
-
-
-// Then use `wallets` instead of `accounts` for rendering
-
-
-type RecentRecipient = SavedRecipient & { destCurrency: "NGN" | "CAD"; lastSentAt: number };
-
+/** ---------------- Constants ---------------- **/
 const HIDE_BALANCE_KEY = "hide_balance_preference";
-const LAST_SEEN_USER_PHONE_KEY = "last_seen_user_phone";
-const RECENT_RECIPIENTS_KEY_BASE = "recent_recipients_v1";
 const CACHED_ACCOUNTS_KEY_BASE = "cached_accounts_v1";
 const CACHED_TOTAL_BALANCE_KEY_BASE = "cached_total_balance_v1";
-const CACHED_RATE_CHANGES_KEY = "cached_rate_changes_v1";
-const RATE_CHANGES_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const KNOWN_EXOTIC_CURRENCIES = ["NGN", "GHS", "RWF", "UGX", "TZS", "ZMW", "XOF", "XAF"];
 
+/** ---------------- Helpers ---------------- **/
 function normalizeCurrency(code: any) {
   return String(code || "").toUpperCase().trim();
 }
 function isValidNumber(n: any) {
   return typeof n === "number" && Number.isFinite(n);
+}
+function getInitials(name: string) {
+  return (name || "U")
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase())
+    .join("");
 }
 
 /** ---------- Cache helpers (USER-SCOPED) ---------- **/
@@ -136,14 +134,12 @@ async function loadCachedAccounts(phone: string): Promise<UserAccount[]> {
   } catch {}
   return [];
 }
-
 async function saveCachedAccounts(accounts: UserAccount[], phone: string): Promise<void> {
   try {
     if (!phone) return;
     await AsyncStorage.setItem(userScopedKey(CACHED_ACCOUNTS_KEY_BASE, phone), JSON.stringify(accounts || []));
   } catch {}
 }
-
 async function loadCachedTotalBalance(
   phone: string
 ): Promise<{ total: number; currency: string; symbol: string } | null> {
@@ -157,7 +153,6 @@ async function loadCachedTotalBalance(
   } catch {}
   return null;
 }
-
 async function saveCachedTotalBalance(total: number, currency: string, symbol: string, phone: string): Promise<void> {
   try {
     if (!phone) return;
@@ -174,50 +169,84 @@ function SkeletonPulse({ style }: { style?: any }) {
   useEffect(() => {
     const pulse = Animated.loop(
       Animated.sequence([
-        Animated.timing(animatedValue, {
-          toValue: 1,
-          duration: 800,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(animatedValue, {
-          toValue: 0,
-          duration: 800,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ]),
+        Animated.timing(animatedValue, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(animatedValue, { toValue: 0, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
     );
     pulse.start();
     return () => pulse.stop();
   }, [animatedValue]);
+
   const opacity = animatedValue.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.7] });
   return <Animated.View style={[{ backgroundColor: "#E5E7EB", borderRadius: 8 }, style, { opacity }]} />;
 }
+
 function TotalBalanceSkeleton() {
   return (
     <View style={{ flexDirection: "row", alignItems: "center" }}>
-      <SkeletonPulse style={{ width: 120, height: 20 }} />
+      <SkeletonPulse style={{ width: 140, height: 20 }} />
     </View>
   );
 }
+
 function AccountCardSkeleton() {
   return (
-    <View style={{ width: 160, height: 100, borderRadius: 16, backgroundColor: "#E5E7EB", marginRight: 12, padding: 14 }}>
+    <View
+      style={{
+        width: 210,
+        height: 140,
+        borderRadius: 16,
+        backgroundColor: "#E5E7EB",
+        marginRight: 12,
+        padding: 14,
+      }}
+    >
       <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
         <SkeletonPulse style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: "#D1D5DB" }} />
-        <SkeletonPulse style={{ width: 40, height: 14, marginLeft: 8, backgroundColor: "#D1D5DB" }} />
+        <SkeletonPulse style={{ width: 44, height: 14, marginLeft: 8, backgroundColor: "#D1D5DB" }} />
       </View>
-      <SkeletonPulse style={{ width: 100, height: 24, backgroundColor: "#D1D5DB" }} />
+      <SkeletonPulse style={{ width: 120, height: 26, backgroundColor: "#D1D5DB" }} />
+      <SkeletonPulse style={{ width: 90, height: 12, backgroundColor: "#D1D5DB", marginTop: 10 }} />
     </View>
   );
 }
+
 function AccountsListSkeleton() {
   return (
     <View style={{ flexDirection: "row", paddingHorizontal: 16, paddingVertical: 8 }}>
       <AccountCardSkeleton />
       <AccountCardSkeleton />
       <AccountCardSkeleton />
+    </View>
+  );
+}
+
+function ExchangeRateRowSkeleton() {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", paddingVertical: 14, paddingHorizontal: 16 }}>
+      <View style={{ flexDirection: "row", marginRight: 12 }}>
+        <SkeletonPulse style={{ width: 28, height: 28, borderRadius: 14 }} />
+        <SkeletonPulse style={{ width: 28, height: 28, borderRadius: 14, marginLeft: -8 }} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <SkeletonPulse style={{ width: 110, height: 16, marginBottom: 6 }} />
+        <SkeletonPulse style={{ width: 160, height: 12 }} />
+      </View>
+      <SkeletonPulse style={{ width: 62, height: 24, borderRadius: 12 }} />
+    </View>
+  );
+}
+
+function ExchangeRatesSkeleton() {
+  return (
+    <View>
+      <ExchangeRateRowSkeleton />
+      <View style={{ height: 1, backgroundColor: "#F3F4F6", marginHorizontal: 16 }} />
+      <ExchangeRateRowSkeleton />
+      <View style={{ height: 1, backgroundColor: "#F3F4F6", marginHorizontal: 16 }} />
+      <ExchangeRateRowSkeleton />
+      <View style={{ height: 1, backgroundColor: "#F3F4F6", marginHorizontal: 16 }} />
+      <ExchangeRateRowSkeleton />
     </View>
   );
 }
@@ -247,11 +276,25 @@ function NetworkBanner({
         alignItems: "center",
       }}
     >
-      <Text style={{ fontSize: 18, marginRight: 10 }}>📶</Text>
+      <View
+        style={{
+          width: 34,
+          height: 34,
+          borderRadius: 17,
+          backgroundColor: "rgba(234,88,12,0.12)",
+          alignItems: "center",
+          justifyContent: "center",
+          marginRight: 10,
+        }}
+      >
+        <Ionicons name="wifi-outline" size={18} color="#EA580C" />
+      </View>
+
       <View style={{ flex: 1 }}>
         <Text style={{ fontWeight: "900", color: "#9A3412", fontSize: 13 }}>Connection issue</Text>
         <Text style={{ color: "#9A3412", fontSize: 12, marginTop: 2 }}>{text}</Text>
       </View>
+
       <Pressable
         onPress={onRetry}
         style={{
@@ -269,36 +312,7 @@ function NetworkBanner({
   );
 }
 
-function ExchangeRateRowSkeleton() {
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", paddingVertical: 14, paddingHorizontal: 16 }}>
-      <View style={{ flexDirection: "row", marginRight: 12 }}>
-        <SkeletonPulse style={{ width: 28, height: 28, borderRadius: 14 }} />
-        <SkeletonPulse style={{ width: 28, height: 28, borderRadius: 14, marginLeft: -8 }} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <SkeletonPulse style={{ width: 100, height: 16, marginBottom: 6 }} />
-        <SkeletonPulse style={{ width: 140, height: 12 }} />
-      </View>
-      <SkeletonPulse style={{ width: 60, height: 24, borderRadius: 12 }} />
-    </View>
-  );
-}
-function ExchangeRatesSkeleton() {
-  return (
-    <View>
-      <ExchangeRateRowSkeleton />
-      <View style={{ height: 1, backgroundColor: "#F3F4F6", marginHorizontal: 16 }} />
-      <ExchangeRateRowSkeleton />
-      <View style={{ height: 1, backgroundColor: "#F3F4F6", marginHorizontal: 16 }} />
-      <ExchangeRateRowSkeleton />
-      <View style={{ height: 1, backgroundColor: "#F3F4F6", marginHorizontal: 16 }} />
-      <ExchangeRateRowSkeleton />
-    </View>
-  );
-}
-
-/** --- Helpers --- **/
+/** --- Chart helpers --- **/
 function buildSmoothPath(points: { x: number; y: number }[]) {
   if (points.length === 0) return "";
   if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
@@ -314,6 +328,7 @@ function buildSmoothPath(points: { x: number; y: number }[]) {
   }
   return d;
 }
+
 function generateMockHistory(baseRate: number, range: RangeKey): HistoricalPoint[] {
   const now = Date.now();
   const cfg: Record<RangeKey, { points: number; stepMs: number; volatility: number }> = {
@@ -324,9 +339,11 @@ function generateMockHistory(baseRate: number, range: RangeKey): HistoricalPoint
     "5Y": { points: 45, stepMs: 45 * 24 * 60 * 60 * 1000, volatility: 0.008 },
     MAX: { points: 50, stepMs: 75 * 24 * 60 * 60 * 1000, volatility: 0.01 },
   };
+
   const { points, stepMs, volatility } = cfg[range];
   let value = Math.max(0.000001, baseRate);
   const out: HistoricalPoint[] = [];
+
   for (let i = points - 1; i >= 0; i--) {
     const t = now - i * stepMs;
     const wave = Math.sin((points - i) / 6) * volatility * value;
@@ -335,25 +352,6 @@ function generateMockHistory(baseRate: number, range: RangeKey): HistoricalPoint
     out.push({ date: new Date(t).toISOString(), timestamp: t, rate: value });
   }
   return out;
-}
-async function getRecentRecipients(phone: string): Promise<RecentRecipient[]> {
-  try {
-    if (!phone) return [];
-    const raw = await AsyncStorage.getItem(userScopedKey(RECENT_RECIPIENTS_KEY_BASE, phone));
-    const list = raw ? (JSON.parse(raw) as RecentRecipient[]) : [];
-    if (!Array.isArray(list)) return [];
-    return list.sort((a, b) => (b.lastSentAt || 0) - (a.lastSentAt || 0));
-  } catch {
-    return [];
-  }
-}
-function getInitials(name: string) {
-  return (name || "U")
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase())
-    .join("");
 }
 
 function LiveRateMiniChart({
@@ -382,13 +380,16 @@ function LiveRateMiniChart({
 
   const { linePath, fillPath, lastPoint } = useMemo(() => {
     if (chartW <= 0 || historicalPoints.length < 2) return { linePath: "", fillPath: "", lastPoint: { x: 0, y: 0 } };
+
     const padX = 14;
     const padTop = 14;
     const padBottom = 26;
+
     const rates = historicalPoints.map((p) => p.rate);
     const min = Math.min(...rates);
     const max = Math.max(...rates);
     const span = Math.max(1e-9, max - min);
+
     const usableW = Math.max(1, chartW - padX * 2);
     const usableH = Math.max(1, chartH - padTop - padBottom);
 
@@ -431,6 +432,7 @@ function LiveRateMiniChart({
             {Number(baseRate || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
           </Text>
         </View>
+
         <View
           style={{
             paddingHorizontal: 10,
@@ -446,7 +448,7 @@ function LiveRateMiniChart({
         </View>
       </View>
 
-      <View style={{ marginTop: 10, borderRadius: 14, overflow: "hidden", width: "100%" }}>
+      <View style={{ marginTop: 10, borderRadius: 14, overflow: "hidden", width: "100%", backgroundColor: "#F9FAFB" }}>
         {isLoading ? (
           <View style={{ height: chartH, alignItems: "center", justifyContent: "center" }}>
             <ActivityIndicator size="small" color={COLORS.primary} />
@@ -474,12 +476,11 @@ function LiveRateMiniChart({
 }
 
 /** ---------------- HomeScreen ---------------- **/
-
-
 export default function HomeScreen() {
   const router = useRouter();
-  
+
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetRefreshing, setSheetRefreshing] = useState(false);
 
   const [email, setEmail] = useState("");
   const [userName, setUserName] = useState("");
@@ -526,18 +527,15 @@ export default function HomeScreen() {
 
   // Keep amount skeleton visible until we confirm a fresh API balance.
   const [balanceLoadingByCurrency, setBalanceLoadingByCurrency] = useState<Record<string, boolean>>({});
-  
-  const [sheetRefreshing, setSheetRefreshing] = useState(false);
-  const onSettlementConfirmedRef = useRef<() => void>(() => {});
 
+  const onSettlementConfirmedRef = useRef<() => void>(() => {});
   const { refresh: refreshPendingSettlements, getOptimisticBalance, hasPendingForCurrency } = usePendingSettlements(
     useCallback(() => {
       onSettlementConfirmedRef.current();
     }, []),
-    true,
+    true
   );
 
-  
   /** Watch network continuously */
   useEffect(() => {
     const unsub = NetInfo.addEventListener((state) => {
@@ -548,7 +546,14 @@ export default function HomeScreen() {
     return () => unsub();
   }, []);
 
-    /** Load phone + email verified once */
+  /** Redirect to network error screen when network is bad (avoid doing this inside render/memo) */
+  useEffect(() => {
+    if (!networkOk) {
+      router.replace("/networkerrorstate");
+    }
+  }, [networkOk, router]);
+
+  /** Load phone + email verified once */
   useEffect(() => {
     (async () => {
       try {
@@ -562,44 +567,41 @@ export default function HomeScreen() {
     })();
   }, []);
 
-  /** Load user-scoped cached data + prevent cache leakage when switching users */
   /** Load cached wallets ONLY after phone is known */
-useEffect(() => {
-  if (!userPhone) return;
+  useEffect(() => {
+    if (!userPhone) return;
 
-  const loadCachedData = async () => {
-    if (hasCacheLoadedRef.current) return;
-    hasCacheLoadedRef.current = true;
+    const loadCachedData = async () => {
+      if (hasCacheLoadedRef.current) return;
+      hasCacheLoadedRef.current = true;
 
-    // ✅ USER-SCOPED CACHE
-    const cachedAccounts = await loadCachedAccounts(userPhone);
-    if (cachedAccounts.length > 0) {
-      setAccounts(cachedAccounts);
+      const cachedAccounts = await loadCachedAccounts(userPhone);
+      if (cachedAccounts.length > 0) {
+        setAccounts(cachedAccounts);
 
-      // keep skeleton until API confirms
-      setWalletsConfirmed(false);
+        // keep skeleton until API confirms
+        setWalletsConfirmed(false);
 
-      setBalanceLoadingByCurrency(() => {
-        const next: Record<string, boolean> = {};
-        for (const a of cachedAccounts) {
-          const ccy = normalizeCurrency(a.currencyCode);
-          if (ccy) next[ccy] = true;
-        }
-        return next;
-      });
-    }
+        setBalanceLoadingByCurrency(() => {
+          const next: Record<string, boolean> = {};
+          for (const a of cachedAccounts) {
+            const ccy = normalizeCurrency(a.currencyCode);
+            if (ccy) next[ccy] = true;
+          }
+          return next;
+        });
+      }
 
-    const cachedTotal = await loadCachedTotalBalance(userPhone);
-    if (cachedTotal) {
-      setTotalBalance(cachedTotal.total);
-      setHomeCurrency(cachedTotal.currency);
-      setHomeCurrencySymbol(cachedTotal.symbol);
-    }
-  };
+      const cachedTotal = await loadCachedTotalBalance(userPhone);
+      if (cachedTotal) {
+        setTotalBalance(cachedTotal.total);
+        setHomeCurrency(cachedTotal.currency);
+        setHomeCurrencySymbol(cachedTotal.symbol);
+      }
+    };
 
-  loadCachedData();
-}, [userPhone]);
-
+    loadCachedData();
+  }, [userPhone]);
 
   useEffect(() => {
     (async () => {
@@ -616,26 +618,6 @@ useEffect(() => {
     } catch {}
   }, [hideBalance]);
 
-  // Refresh accounts when the "Add money to" sheet opens to ensure fresh data
-  useEffect(() => {
-    if (sheetOpen && userPhone) {
-      setSheetRefreshing(true);
-      (async () => {
-        try {
-          const res = await getUserAccounts(userPhone, true);
-          if (res.success && res.accounts) {
-            setAccounts(res.accounts);
-            console.log('[HomeScreen] Refreshed accounts for sheet:', res.accounts.length);
-          }
-        } catch (e) {
-          console.log('[HomeScreen] Failed to refresh accounts for sheet:', e);
-        } finally {
-          setSheetRefreshing(false);
-        }
-      })();
-    }
-  }, [sheetOpen, userPhone]);
-
   const formatBalance = useCallback(
     (balance?: number | null) => {
       if (hideBalance) return "••••••";
@@ -643,13 +625,12 @@ useEffect(() => {
       const val = balance as number;
       return val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     },
-    [hideBalance],
+    [hideBalance]
   );
 
   /** Mark list wallets loading (use ref so navigation won’t pass empty list) */
   const markAllWalletsLoading = useCallback((list: UserAccount[]) => {
     const base = Array.isArray(list) && list.length > 0 ? list : accountsRef.current;
-
     setBalanceLoadingByCurrency((prev) => {
       const next: Record<string, boolean> = { ...prev };
       for (const a of base) {
@@ -674,6 +655,34 @@ useEffect(() => {
     setWalletsConfirmed(true);
   }, []);
 
+  const isWalletDisabled = (a?: Pick<UserAccount, "status" | "currencyCode"> | null) => {
+    const status = String(a?.status || "").toLowerCase();
+    if (status === "disabled" || status === "inactive" || status === "in-active") return true;
+    const code = normalizeCurrency(a?.currencyCode);
+    return !!(code && disabledCurrencies[code]);
+  };
+
+  const getFlagForCurrency = (currencyCode?: string) => {
+    const key = normalizeCurrency(currencyCode);
+    const fallbackEmoji: Record<string, string> = {
+      USD: "🇺🇸",
+      CAD: "🇨🇦",
+      GBP: "🇬🇧",
+      EUR: "🇪🇺",
+      NGN: "🇳🇬",
+      GHS: "🇬🇭",
+      KES: "🇰🇪",
+      RWF: "🇷🇼",
+      UGX: "🇺🇬",
+      TZS: "🇹🇿",
+      ZMW: "🇿🇲",
+      XOF: "🇸🇳",
+      XAF: "🇨🇲",
+    };
+    return flagsByCurrency[key] || fallbackEmoji[key] || "";
+  };
+
+  /** -------- Main fetch ---------- */
   const fetchUserData = useCallback(
     async (force: boolean = false) => {
       const now = Date.now();
@@ -693,23 +702,27 @@ useEffect(() => {
         }
         setUserPhone(phone);
 
+        // If network is not OK -> go to error screen
         if (!networkOk) {
           setLoading(false);
           setRefreshing(false);
           setRatesLoading(false);
           setWalletsConfirmed(false);
+          router.replace("/networkerrorstate");
           return;
         }
 
         // keep wallet amount skeleton while refreshing
         markAllWalletsLoading(accountsRef.current);
 
-        // user info
+        // user info from local storage
         const storedUser = await AsyncStorage.getItem("user_info");
         if (storedUser) {
-          const userInfo = JSON.parse(storedUser);
-          setEmail(userInfo.email || "");
-          setUserName(String(userInfo.firstName || userInfo.first_name || "").trim());
+          try {
+            const userInfo = JSON.parse(storedUser);
+            setEmail(userInfo.email || "");
+            setUserName(String(userInfo.firstName || userInfo.first_name || "").trim());
+          } catch {}
         }
 
         // flags + disabled currencies
@@ -748,11 +761,29 @@ useEffect(() => {
           }
         } catch {}
 
-        // accounts
+        // accounts (wallets) — if we can't fetch balances and no cache, redirect
         let userAccounts: UserAccount[] = [];
-        const accountsRes = await getUserAccounts(phone, true);
+        let accountsRes: any = null;
 
-        if (accountsRes?.success && Array.isArray(accountsRes.accounts) && accountsRes.accounts.length > 0) {
+        try {
+          accountsRes = await getUserAccounts(phone, true);
+        } catch {
+          accountsRes = null;
+        }
+
+        if (!accountsRes?.success) {
+          const cached = await loadCachedAccounts(phone);
+          if (!cached || cached.length === 0) {
+            setWalletsConfirmed(false);
+            router.replace("/networkerrorstate");
+            return;
+          }
+          // fall back to cache
+          userAccounts = cached;
+          setAccounts(cached);
+          setWalletsConfirmed(false);
+          markAllWalletsLoading(cached);
+        } else if (Array.isArray(accountsRes.accounts) && accountsRes.accounts.length > 0) {
           userAccounts = accountsRes.accounts;
 
           // local ledger for exotic balances
@@ -771,7 +802,7 @@ useEffect(() => {
                   const ccy = normalizeCurrency(a.currencyCode);
                   const res = await getLocalBalance(phone, ccy);
                   return { ccy, res };
-                }),
+                })
               );
               const balanceByCurrency = new Map<string, number>();
               for (const { ccy, res } of results) {
@@ -785,22 +816,22 @@ useEffect(() => {
             } catch {}
           }
 
-          // ✅ DO NOT overwrite with empty/partial snapshots
           setAccounts(userAccounts);
           await saveCachedAccounts(userAccounts, phone);
 
-          // ✅ only confirm wallets if API source
-          if ((accountsRes as any).source === "api") {
+          // confirm only if API snapshot
+          if (accountsRes.source === "api") {
             confirmWalletsFromApi(userAccounts);
           } else {
             setWalletsConfirmed(false);
             markAllWalletsLoading(userAccounts);
           }
         } else {
+          // no wallets returned -> keep whatever cache we have, but don’t mark confirmed
           setWalletsConfirmed(false);
         }
 
-        // total balance
+        // total balance — if cannot fetch AND no cached total, redirect
         try {
           const totalRes = await getTotalBalance(phone);
           if (totalRes?.success) {
@@ -816,8 +847,20 @@ useEffect(() => {
 
             if (newCurrency) setHomeCurrency(newCurrency);
             if (newSymbol) setHomeCurrencySymbol(newSymbol);
+          } else {
+            const cachedTotal = await loadCachedTotalBalance(phone);
+            if (!cachedTotal) {
+              router.replace("/networkerrorstate");
+              return;
+            }
           }
-        } catch {}
+        } catch {
+          const cachedTotal = await loadCachedTotalBalance(phone);
+          if (!cachedTotal) {
+            router.replace("/networkerrorstate");
+            return;
+          }
+        }
 
         // exchange rates
         setRatesLoading(true);
@@ -831,22 +874,30 @@ useEffect(() => {
           if (pairs.length > 0) {
             const ratesRes = await getExchangeRates(pairs.join(","));
             if (ratesRes?.success && Array.isArray(ratesRes.rates)) {
-              const ratesList: DisplayRate[] = ratesRes.rates.map((r: any) => {
-                const from = normalizeCurrency(r.fromCurrency || r.buy_currency);
-                const to = normalizeCurrency(r.toCurrency || r.sell_currency);
-                const numericRate = parseFloat(r.rate || r.core_rate || 0);
-                return {
-                  from,
-                  to,
-                  fromFlag: flagsMap[from] || "",
-                  toFlag: flagsMap[to] || "",
-                  rate: numericRate.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 }),
-                  change: r.change || "+0.0%",
-                  numericRate,
-                };
-              });
+              const ratesList: DisplayRate[] = ratesRes.rates
+                .map((r: any) => {
+                  const from = normalizeCurrency(r.fromCurrency || r.buy_currency);
+                  const to = normalizeCurrency(r.toCurrency || r.sell_currency);
+                  const numericRate = parseFloat(r.rate || r.core_rate || 0);
+                  if (!from || !to || !Number.isFinite(numericRate)) return null;
+
+                  return {
+                    from,
+                    to,
+                    fromFlag: flagsMap[from] || "",
+                    toFlag: flagsMap[to] || "",
+                    rate: numericRate.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 }),
+                    change: r.change || "+0.0%",
+                    numericRate,
+                  } as DisplayRate;
+                })
+                .filter(Boolean) as DisplayRate[];
               setDisplayRates(ratesList);
+            } else {
+              setDisplayRates([]);
             }
+          } else {
+            setDisplayRates([]);
           }
         } finally {
           setRatesLoading(false);
@@ -866,7 +917,8 @@ useEffect(() => {
       homeCurrencySymbol,
       markAllWalletsLoading,
       confirmWalletsFromApi,
-    ],
+      router,
+    ]
   );
 
   useEffect(() => {
@@ -875,27 +927,153 @@ useEffect(() => {
     };
   }, [fetchUserData]);
 
+  /** ✅ Refresh like “reloaded” whenever user returns/back to Home */
+  const didFocusOnceRef = useRef(false);
   useFocusEffect(
     useCallback(() => {
-      if (!hasLoadedOnceRef.current && accountsRef.current.length === 0) setLoading(true);
-      fetchUserData(false);
+      // initial focus is handled by normal load; after that, force refresh
+      if (!didFocusOnceRef.current) {
+        didFocusOnceRef.current = true;
+        return;
+      }
+
+      setRefreshing(true);
+      fetchUserData(true);
+
       (async () => {
-        const p = (await AsyncStorage.getItem("user_phone")) || "";
-        if (p) setRecentRecipients(await getRecentRecipients(p));
+        const phone = userPhone || (await AsyncStorage.getItem("user_phone")) || "";
+        if (phone) {
+          const res = await getRecentRecipientsFromDB(phone, 10);
+          if (res.success) setRecentRecipients(res.recipients);
+        }
       })();
+
       refreshPendingSettlements();
-    }, [fetchUserData, refreshPendingSettlements]),
+
+      const t = setTimeout(() => setRefreshing(false), 800);
+      return () => clearTimeout(t);
+    }, [fetchUserData, refreshPendingSettlements, userPhone])
   );
+
+  /** Initial load + refresh on first mount */
+  useEffect(() => {
+    if (!hasLoadedOnceRef.current && accountsRef.current.length === 0) setLoading(true);
+    fetchUserData(false);
+
+    (async () => {
+      const phone = userPhone || (await AsyncStorage.getItem("user_phone")) || "";
+      if (phone) {
+        const res = await getRecentRecipientsFromDB(phone, 10);
+        if (res.success) setRecentRecipients(res.recipients);
+      }
+    })();
+
+    refreshPendingSettlements();
+  }, [fetchUserData, refreshPendingSettlements, userPhone]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     fetchUserData(true);
+
     (async () => {
-        const p = (await AsyncStorage.getItem("user_phone")) || "";
-        if (p) setRecentRecipients(await getRecentRecipients(p));
-      })();
+      const phone = userPhone || (await AsyncStorage.getItem("user_phone")) || "";
+      if (phone) {
+        const res = await getRecentRecipientsFromDB(phone, 10);
+        if (res.success) setRecentRecipients(res.recipients);
+      }
+    })();
+
     refreshPendingSettlements();
-  }, [fetchUserData, refreshPendingSettlements]);
+  }, [fetchUserData, refreshPendingSettlements, userPhone]);
+
+  /** email verified check */
+  useEffect(() => {
+    (async () => {
+      const phone = await AsyncStorage.getItem("user_phone");
+      if (phone) {
+        const emailCheck = await checkEmailVerified(phone as string);
+        setEmailVerified(!!emailCheck?.emailVerified);
+      }
+    })();
+  }, []);
+
+  // Refresh accounts when the "Add money to" sheet opens to ensure fresh data
+  useEffect(() => {
+    if (sheetOpen && userPhone) {
+      setSheetRefreshing(true);
+      (async () => {
+        try {
+          const res = await getUserAccounts(userPhone, true);
+          if (res.success && res.accounts) setAccounts(res.accounts);
+        } catch {}
+        setSheetRefreshing(false);
+      })();
+    }
+  }, [sheetOpen, userPhone]);
+
+  const visibleRates = useMemo(() => {
+    const walletCurrencies = accounts.map((a) => normalizeCurrency(a.currencyCode));
+    return displayRates.filter((r) => walletCurrencies.includes(r.from) && walletCurrencies.includes(r.to)).slice(0, 4);
+  }, [displayRates, accounts]);
+
+  const selectedRateObj = useMemo(() => (visibleRates.length > 0 ? visibleRates[0] : null), [visibleRates]);
+
+  useEffect(() => {
+    if (!selectedRateObj?.numericRate) {
+      setHistoricalPoints([]);
+      setChartChangePercent(0);
+      return;
+    }
+
+    const fetchHistoricalData = async () => {
+      setChartLoading(true);
+      try {
+        const response = await getHistoricalRates(selectedRateObj.from, selectedRateObj.to, selectedRange);
+        if (response.success && response.points && response.points.length > 0) {
+          setHistoricalPoints(response.points);
+
+          if (selectedRange === "1D" && selectedRateObj.change) {
+            const parsedChange = parseFloat(String(selectedRateObj.change).replace(/[+%]/g, ""));
+            setChartChangePercent(isNaN(parsedChange) ? 0 : parsedChange);
+          } else {
+            const first = response.points[0]?.rate || selectedRateObj.numericRate;
+            const last = response.points[response.points.length - 1]?.rate || selectedRateObj.numericRate;
+            const changePct = first > 0 ? ((last - first) / first) * 100 : 0;
+            setChartChangePercent(changePct);
+          }
+        } else {
+          const pts = generateMockHistory(selectedRateObj.numericRate, selectedRange);
+          setHistoricalPoints(pts);
+          const first = pts[0]?.rate || selectedRateObj.numericRate;
+          const last = pts[pts.length - 1]?.rate || selectedRateObj.numericRate;
+          const changePct = first > 0 ? ((last - first) / first) * 100 : 0;
+          setChartChangePercent(changePct);
+        }
+      } catch {
+        const pts = generateMockHistory(selectedRateObj.numericRate, selectedRange);
+        setHistoricalPoints(pts);
+        const first = pts[0]?.rate || selectedRateObj.numericRate;
+        const last = pts[pts.length - 1]?.rate || selectedRateObj.numericRate;
+        const changePct = first > 0 ? ((last - first) / first) * 100 : 0;
+        setChartChangePercent(changePct);
+      } finally {
+        setChartLoading(false);
+      }
+    };
+
+    fetchHistoricalData();
+  }, [selectedRateObj?.numericRate, selectedRateObj?.from, selectedRateObj?.to, selectedRange]);
+
+  const onFxChartLayout = (e: LayoutChangeEvent) => {
+    const w = Math.floor(e.nativeEvent.layout.width);
+    if (w > 0 && w !== fxChartWidth) setFxChartWidth(w);
+  };
+
+  const shouldShowWalletSkeleton = useMemo(() => {
+    if (loading && accounts.length === 0) return true;
+    // if balances not confirmed, keep skeleton on wallet amounts (not the whole screen)
+    return false;
+  }, [loading, accounts.length]);
 
   const handleVerifyEmail = async () => {
     try {
@@ -935,129 +1113,6 @@ useEffect(() => {
     Alert.alert("Verify Your Email and Identity", "Your account verification is pending.");
   };
 
-  const getFlagForCurrency = (currencyCode?: string) => {
-    const key = normalizeCurrency(currencyCode);
-    const fallbackEmoji: Record<string, string> = {
-      USD: "🇺🇸",
-      CAD: "🇨🇦",
-      GBP: "🇬🇧",
-      EUR: "🇪🇺",
-      NGN: "🇳🇬",
-      GHS: "🇬🇭",
-      KES: "🇰🇪",
-      RWF: "🇷🇼",
-      UGX: "🇺🇬",
-      TZS: "🇹🇿",
-      ZMW: "🇿🇲",
-      XOF: "🇸🇳",
-      XAF: "🇨🇲",
-    };
-    return flagsByCurrency[key] || fallbackEmoji[key] || "";
-  };
-
-  const isWalletDisabled = (a?: Pick<UserAccount, "status" | "currencyCode"> | null) => {
-    const status = String(a?.status || "").toLowerCase();
-    if (status === "disabled" || status === "inactive" || status === "in-active") return true;
-    const code = normalizeCurrency(a?.currencyCode);
-    return !!(code && disabledCurrencies[code]);
-  };
-
-  const visibleRates = useMemo(() => {
-    const walletCurrencies = accounts.map((a) => normalizeCurrency(a.currencyCode));
-    return displayRates
-      .filter((r) => walletCurrencies.includes(r.from) && walletCurrencies.includes(r.to))
-      .slice(0, 4);
-  }, [displayRates, accounts]);
-
-  const selectedRateObj = useMemo(() => (visibleRates.length > 0 ? visibleRates[0] : null), [visibleRates]);
-
-  useEffect(() => {
-    if (!selectedRateObj?.numericRate) {
-      setHistoricalPoints([]);
-      setChartChangePercent(0);
-      return;
-    }
-    const fetchHistoricalData = async () => {
-      setChartLoading(true);
-      try {
-        const response = await getHistoricalRates(
-          selectedRateObj.from,
-          selectedRateObj.to,
-          selectedRange
-        );
-        
-        if (response.success && response.points && response.points.length > 0) {
-          // Use real API data
-          setHistoricalPoints(response.points);
-          
-          
-          // For 1D view, use the live rate's daily change to stay consistent with the rates list
-          // For other ranges, calculate from the historical data points
-          if (selectedRange === '1D' && selectedRateObj.change) {
-            // Parse the change string (e.g., "-7.91%" or "+0.73%") to a number
-            const parsedChange = parseFloat(selectedRateObj.change.replace(/[+%]/g, ''));
-            setChartChangePercent(isNaN(parsedChange) ? 0 : parsedChange);
-          } else {
-            // Calculate change from first to last point for longer time ranges
-            const first = response.points[0]?.rate || selectedRateObj.numericRate;
-            const last = response.points[response.points.length - 1]?.rate || selectedRateObj.numericRate;
-            const changePct = first > 0 ? ((last - first) / first) * 100 : 0;
-            setChartChangePercent(changePct);
-          }
-
-        } else {
-          // Fallback to mock data if API fails
-          const pts = generateMockHistory(selectedRateObj.numericRate, selectedRange);
-          setHistoricalPoints(pts);
-          
-          const first = pts[0]?.rate || selectedRateObj.numericRate;
-          const last = pts[pts.length - 1]?.rate || selectedRateObj.numericRate;
-          const changePct = first > 0 ? ((last - first) / first) * 100 : 0;
-          setChartChangePercent(changePct);
-        }
-      } catch (error) {
-        console.error('Failed to fetch historical rates:', error);
-        // Fallback to mock data on error
-        const pts = generateMockHistory(selectedRateObj.numericRate, selectedRange);
-        setHistoricalPoints(pts);
-        
-        const first = pts[0]?.rate || selectedRateObj.numericRate;
-        const last = pts[pts.length - 1]?.rate || selectedRateObj.numericRate;
-        const changePct = first > 0 ? ((last - first) / first) * 100 : 0;
-        setChartChangePercent(changePct);
-      } finally {
-        setChartLoading(false);
-      }
-    };
-
-    fetchHistoricalData();
-  }, [selectedRateObj?.numericRate, selectedRateObj?.from, selectedRateObj?.to, selectedRange]);
-
-  
-
-  const onFxChartLayout = (e: LayoutChangeEvent) => {
-    const w = Math.floor(e.nativeEvent.layout.width);
-    if (w > 0 && w !== fxChartWidth) setFxChartWidth(w);
-  };
-
-  const shouldShowWalletSkeleton = useMemo(() => {
-    if (loading && accounts.length === 0) return true;
-    if (!networkOk) return true;
-    if (!walletsConfirmed) return true;
-    return false;
-  }, [loading, accounts.length, networkOk, walletsConfirmed]);
-
-  /** email verified check (kept here so it updates on focus sometimes) */
-  useEffect(() => {
-    (async () => {
-      const phone = await AsyncStorage.getItem("user_phone");
-      if (phone) {
-        const emailCheck = await checkEmailVerified(phone as string);
-        setEmailVerified(!!emailCheck.emailVerified);
-      }
-    })();
-  }, []);
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <ScreenShell padded={false}>
@@ -1068,7 +1123,7 @@ useEffect(() => {
             onRetry={() => fetchUserData(true)}
           />
 
-          {!isKycApproved || !emailVerified?  (
+          {!isKycApproved || !emailVerified ? (
             <View
               style={{
                 backgroundColor: "#FFF3CD",
@@ -1080,20 +1135,33 @@ useEffect(() => {
                 alignItems: "center",
               }}
             >
-              <Text style={{ fontSize: 16, marginRight: 8 }}>⚠️</Text>
+              <View
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 17,
+                  backgroundColor: "rgba(245,158,11,0.16)",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginRight: 10,
+                }}
+              >
+                <Ionicons name="warning-outline" size={18} color="#856404" />
+              </View>
+
               <View style={{ flex: 1 }}>
-                <Text style={{ fontWeight: "700", color: "#856404" }}>Verification Required</Text>
+                <Text style={{ fontWeight: "900", color: "#856404" }}>Verification Required</Text>
                 <Text style={{ color: "#856404", fontSize: 12, marginTop: 2 }}>
                   To continue using your account, please verify your email and identity.
                 </Text>
               </View>
             </View>
-          ) : ("")}
+          ) : null}
 
           {/* Top bar */}
           <View style={styles.topBar}>
             <Pressable style={styles.avatarCircle} onPress={() => router.push("/profile")}>
-              <Text style={{ fontSize: 16 }}>👤</Text>
+              <Ionicons name="person-outline" size={18} color="#111827" />
             </Pressable>
 
             <View style={{ marginLeft: 12 }}>
@@ -1101,15 +1169,23 @@ useEffect(() => {
                 <Text style={{ fontWeight: "600", fontSize: 14, color: "#222", marginBottom: 2 }}>{userName}</Text>
               ) : null}
 
-              {/* Total balance: never show 0.00 unless we truly have 0 */}
               {loading && accounts.length === 0 ? (
                 <TotalBalanceSkeleton />
               ) : (
                 <Pressable onPress={toggleHideBalance} style={{ flexDirection: "row", alignItems: "center" }}>
-                  <Text style={{ fontWeight: "700", fontSize: 16, color: "#222" }}>
-                    {hideBalance ? "••••••" : `${homeCurrencySymbol}${formatBalance(totalBalance)}`}
+                  <Text style={{ fontWeight: "900", fontSize: 16, color: "#222" }}>
+                    {hideBalance
+                      ? "••••••"
+                      : totalBalance === null
+                      ? "—"
+                      : `${homeCurrencySymbol}${formatBalance(totalBalance)}`}
                   </Text>
-                  <Text style={{ marginLeft: 6, fontSize: 14 }}>{hideBalance ? "🙈" : "👁️"}</Text>
+                  <Ionicons
+                    name={hideBalance ? "eye-off-outline" : "eye-outline"}
+                    size={16}
+                    color="#6B7280"
+                    style={{ marginLeft: 6 }}
+                  />
                 </Pressable>
               )}
             </View>
@@ -1131,87 +1207,36 @@ useEffect(() => {
             <View style={{ flex: 1 }} />
             <Pressable style={styles.hideBalanceRow} onPress={toggleHideBalance}>
               <Text style={styles.hideBalanceText}>{hideBalance ? "Show balance" : "Hide balance"}</Text>
-              <Text style={{ marginLeft: 6 }}>{hideBalance ? "🙈" : "👁️"}</Text>
+              <Ionicons
+                name={hideBalance ? "eye-off-outline" : "eye-outline"}
+                size={14}
+                color="#6B7280"
+                style={{ marginLeft: 6 }}
+              />
             </Pressable>
           </View>
 
           {/* Accounts row */}
           {shouldShowWalletSkeleton ? (
-            // <AccountsListSkeleton />
-            <Pressable
-                onPress={() => {
-                  // Handle add wallet press
-                  router.push("/addaccount");
-                }}
-
-                style={{ marginRight: 12, }}
-              >
-                <View
-                  style={{
-                    width: 210,
-                    height: 140,
-                    borderRadius: 16,
-                    backgroundColor: 'transparent',
-                    borderWidth: 1,
-                    borderColor: COLORS.green,
-                    justifyContent: "center",
-                    alignItems: "center",
-                    margin: 15,
-                    // subtle fintech shadow
-                    shadowColor: "#000",
-                    shadowOpacity: 0.06,
-                    shadowRadius: 8,
-                    shadowOffset: { width: 0, height: 4 },
-                    elevation: 2,
-                  }}
-                >
-                  <View
-                    style={{
-                      width: 52,
-                      height: 52,
-                      borderRadius: 26,
-                      backgroundColor: "rgba(22,163,74,0.12)",
-                      justifyContent: "center",
-                      alignItems: "center",
-                      marginBottom: 8,
-                    }}
-                  >
-                    <Ionicons
-                      name="add"
-                      size={32}
-                      color={COLORS.primary}
-                    />
-                  </View>
-
-                  <Text
-                    style={{
-                      fontSize: 14,
-                      fontWeight: "700",
-                      color: COLORS.primary,
-                    }}
-                  >
-                    Add wallet
-                  </Text>
-                </View>
-              </Pressable>
+            <>
+              <AccountsListSkeleton />
+            </>
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.accountsRow}>
               {accounts.length === 0 ? (
                 <View style={{ padding: 20, alignItems: "center", width: "100%" }}>
                   <Pressable
-                  style={[{ marginRight: 8 }, styles.addAccountSingle]}
-                    onPress={() => {
-                      router.push(
-                        `/addaccount`,
-                      );
-                    }}
-                    ><Ionicons name="add" size={24} color={COLORS.green} /></Pressable>
+                    style={[{ marginRight: 8 }, styles.addAccountSingle]}
+                    onPress={() => router.push(`/addaccount`)}
+                  >
+                    <Ionicons name="add" size={24} color={COLORS.green} />
+                  </Pressable>
                 </View>
               ) : (
                 accounts.map((a) => {
                   const walletDisabled = isWalletDisabled(a);
                   const ccyKey = normalizeCurrency(a.currencyCode);
-                  const walletAmountStillLoading = !hideBalance && balanceLoadingByCurrency[ccyKey] === true;
+                  const walletAmountStillLoading = !hideBalance && balanceLoadingByCurrency[ccyKey] === true && !walletsConfirmed;
 
                   return (
                     <Pressable
@@ -1237,21 +1262,22 @@ useEffect(() => {
                               balance: a.balance,
                               flag: getFlagForCurrency(a.currencyCode),
                               currencyName: a.currency?.name || a.currencyCode,
-                            }),
-                          )}`,
+                            })
+                          )}`
                         );
                       }}
                       style={{ marginRight: 12, opacity: walletDisabled ? 0.6 : 1 }}
                     >
-                      <LinearGradient
-                        colors={
-                          a.currencyCode === "CAD" ? ["#2d2e2dff", "#1a9a63ff"] : ["#1a9a63ff", "#1a9a63ff"]
-                          // a.currencyCode === "CAD" ? ["#3c3b3bff", "#3c3b3b"] : ["#19955f", "#19955f"]
-                          
-                        }
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={styles.accountCardGradient}
+                      {/* ✅ Plain fintech card (no LinearGradient) */}
+                      <View
+                        style={[
+                          styles.accountCardGradient,
+                          {
+                            backgroundColor: "#28b085ff",
+                            borderWidth: 1,
+                            borderColor: "rgba(255,255,255,0.18)",
+                          },
+                        ]}
                       >
                         {walletDisabled ? (
                           <View
@@ -1274,7 +1300,6 @@ useEffect(() => {
                         ) : null}
 
                         <View style={styles.accountHeader}>
-                          {/* <Text style={[styles.flag, { color: "#fff" }]}>{getFlagForCurrency(a.currencyCode)}</Text> */}
                           <CountryFlag currencyCode={a.currencyCode} size="md" />
                           <Text style={styles.accountLabelWhite}>{a.currencyCode}</Text>
                         </View>
@@ -1293,8 +1318,10 @@ useEffect(() => {
                           <Text style={styles.accountAmountWhite}>
                             {formatBalance(
                               hasPendingForCurrency(a.currencyCode)
-                                ? (isValidNumber(a.balance) ? getOptimisticBalance(a.balance as number, a.currencyCode) : null)
-                                : a.balance,
+                                ? isValidNumber(a.balance)
+                                  ? getOptimisticBalance(a.balance as number, a.currencyCode)
+                                  : null
+                                : a.balance
                             )}
                           </Text>
                         )}
@@ -1304,32 +1331,24 @@ useEffect(() => {
                           style={styles.cardCornerImage}
                           resizeMode="contain"
                         />
-                      </LinearGradient>
+                      </View>
                     </Pressable>
                   );
                 })
-                
               )}
-              <Pressable
-                onPress={() => {
-                  // Handle add wallet press
-                  router.push("/addaccount");
-                }}
 
-                style={{ marginRight: 12, }}
-              >
+              {/* Add wallet card */}
+              <Pressable onPress={() => router.push("/addaccount")} style={{ marginRight: 12 }}>
                 <View
                   style={{
                     width: 210,
                     height: 140,
                     borderRadius: 16,
-                    backgroundColor: 'transparent',
+                    backgroundColor: "transparent",
                     borderWidth: 1,
                     borderColor: COLORS.green,
                     justifyContent: "center",
                     alignItems: "center",
-
-                    // subtle fintech shadow
                     shadowColor: "#000",
                     shadowOpacity: 0.06,
                     shadowRadius: 8,
@@ -1348,36 +1367,32 @@ useEffect(() => {
                       marginBottom: 8,
                     }}
                   >
-                    <Ionicons
-                      name="add"
-                      size={32}
-                      color={COLORS.primary}
-                    />
+                    <Ionicons name="add" size={32} color={COLORS.primary} />
                   </View>
 
-                  <Text
-                    style={{
-                      fontSize: 14,
-                      fontWeight: "700",
-                      color: COLORS.primary,
-                    }}
-                  >
-                    Add wallet
-                  </Text>
+                  <Text style={{ fontSize: 14, fontWeight: "900", color: COLORS.primary }}>Add wallet</Text>
                 </View>
               </Pressable>
             </ScrollView>
           )}
 
-          {/* Actions */}
+          {/* Actions (with icons) */}
           <View style={styles.actionsRow}>
             <PrimaryButton
-              title="Transfer Now"
+              title={
+                <Text style={{ fontWeight: "600" }}>
+                  <Ionicons name="arrow-forward" size={16} color="#fff" /> Transfer Now
+                </Text> as any
+              }
               onPress={() => (isKycApproved ? router.push("/sendmoney") : handleBlockedAction())}
               style={{ flex: 1 }}
             />
             <OutlineButton
-              title="+ Add Money"
+              title={
+                <Text style={{ fontWeight: "600", color: COLORS.primary }}>
+                  <Ionicons name="add" size={16} color={COLORS.primary} /> Add Money
+                </Text> as any
+              }
               onPress={() => (isKycApproved ? setSheetOpen(true) : handleBlockedAction())}
               style={{ flex: 1, marginLeft: 12 }}
             />
@@ -1406,7 +1421,7 @@ useEffect(() => {
               >
                 <View style={styles.recentAvatarWrap}>
                   <View style={styles.recentAvatar}>
-                    <Text style={{ fontWeight: "800", color: "#323232ff" }}>{getInitials(r.accountName)}</Text>
+                    <Text style={{ fontWeight: "900", color: "#323232ff" }}>{getInitials(r.accountName)}</Text>
                   </View>
                   <View style={styles.smallFlag}>
                     <CountryFlag currencyCode={r.destCurrency} size="sm" />
@@ -1422,33 +1437,52 @@ useEffect(() => {
                 )}
               </Pressable>
             ))}
+
             {recentRecipients.length === 0 && (
               <Pressable
-              style={styles.recentEmptyCard}
+                style={styles.recentEmptyCard}
                 onPress={() => {
                   if (!isKycApproved) return handleBlockedAction();
                   router.push("/sendmoney");
                 }}
               >
-                <View >
+                <View style={{ alignItems: "center" }}>
                   <View style={styles.recentEmptyIconCircle}>
-                    <Ionicons
-                      name="people"
-                      size={22}
-                      color={COLORS.primary}
-                    />
+                    {/* ✅ icon (no emoji) */}
+                    <Ionicons name="people-outline" size={24} color={COLORS.primary} />
                   </View>
 
-                  <View style={{ marginTop: 12, alignItems: "center",}}>
+                  <View style={{ marginTop: 12, alignItems: "center" }}>
                     <Text style={styles.recentEmptyTitle}>No recent recipients yet</Text>
-                  
+                    <Text style={{ marginTop: 6, color: "#9CA3AF", fontWeight: "700", fontSize: 12 }}>
+                      Start a transfer to see them here
+                    </Text>
                   </View>
                 </View>
               </Pressable>
             )}
           </View>
+
+          {/* Referral */}
+          <Text style={[styles.sectionTitle, { marginTop: 18, paddingHorizontal: 16 }]}>Referral</Text>
+          <Pressable style={styles.referralBanner} onPress={() => router.push("/referral")}>
+            <View style={styles.referralLeft}>
+              <View style={styles.referralIconWrap}>
+                <Ionicons name="gift-outline" size={22} color={COLORS.primary} />
+              </View>
+
+              <View>
+                <Text style={styles.referralTitle}>Refer a friend</Text>
+                <Text style={styles.referralSubtitle}>Get 3% bonus on their first transfer</Text>
+              </View>
+            </View>
+
+            <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+          </Pressable>
+
+          {/* Exchange Rates */}
           <Text style={[styles.sectionTitle, { marginTop: 18, paddingHorizontal: 16 }]}>Exchange Rates</Text>
-          {/* FX block */}
+
           <View style={styles.fxCard}>
             <View style={styles.fxHeader}>
               <View>
@@ -1459,14 +1493,15 @@ useEffect(() => {
                 <Text style={styles.fxSeeAll}>See all</Text>
               </Pressable>
             </View>
+
             <View style={styles.fxDivider} />
+
             {ratesLoading ? (
               <ExchangeRatesSkeleton />
             ) : visibleRates.length === 0 ? (
               <View style={{ padding: 20, alignItems: "center" }}>
-                <Ionicons name="trending-up" size={40} color={COLORS.primary} />
-
-                <Text style={{ color: "#888", fontSize: 14, textAlign: "center" }}>
+                <Ionicons name="trending-up-outline" size={40} color={COLORS.primary} />
+                <Text style={{ color: "#888", fontSize: 14, textAlign: "center", marginTop: 8 }}>
                   Add at least two currency accounts to see rates.
                 </Text>
               </View>
@@ -1484,6 +1519,7 @@ useEffect(() => {
                         <CountryFlag currencyCode={x.from} size="md" />
                         <CountryFlag currencyCode={x.to} size="md" style={{ marginLeft: -8 }} />
                       </View>
+
                       <View>
                         <Text style={styles.fxPair}>
                           {x.from} → {x.to}
@@ -1493,6 +1529,7 @@ useEffect(() => {
                         </Text>
                       </View>
                     </View>
+
                     <View style={styles.fxRight}>
                       <View style={[styles.fxChangePill, isPositive ? styles.fxUp : styles.fxDown]}>
                         <Text style={[styles.fxChangeText, isPositive ? styles.fxUpText : styles.fxDownText]}>
@@ -1520,6 +1557,7 @@ useEffect(() => {
                       historicalPoints={historicalPoints}
                       isLoading={chartLoading}
                     />
+
                     <View style={styles.midMarketBox}>
                       <View style={styles.midMarketRow}>
                         <View style={styles.midMarketIconWrap}>
@@ -1536,6 +1574,7 @@ useEffect(() => {
                     </View>
                   </>
                 )}
+
                 <View style={{ marginTop: 10 }}>
                   <Text style={styles.fxFooterText}>Last updated: just now</Text>
                 </View>
@@ -1547,8 +1586,10 @@ useEffect(() => {
         </ScrollView>
       </ScreenShell>
 
+      {/* Add money bottom sheet */}
       <BottomSheet open={sheetOpen} onClose={() => setSheetOpen(false)}>
         <Text style={styles.sheetTitle}>Add money to</Text>
+
         {sheetRefreshing ? (
           <View style={{ padding: 30, alignItems: "center" }}>
             <ActivityIndicator size="small" color={COLORS.primary} />

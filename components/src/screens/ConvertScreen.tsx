@@ -11,12 +11,14 @@ import {
   Platform,
   TouchableWithoutFeedback,
   Keyboard,
+  Modal,
+  FlatList,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams } from "expo-router";
 import ScreenShell from "./../../ScreenShell";
 import CurrencyPill from "./../../CurrencyPill";
-import CurrencyPickerModal, { Wallet } from "./../../CurrencyPickerModal";
+import { Wallet } from "./../../CurrencyPickerModal";
 import { styles } from "../../../theme/styles";
 import { router } from "expo-router";
 import { getUserWallets, getConversionQuote, executeConversion } from "../../../api/config";
@@ -25,7 +27,35 @@ import FeeBreakdown, { FeeInfo } from "../../../components/FeeBreakdown";
 import CountryFlag from "../../../components/CountryFlag";
 
 // ✅ FIX: extend Wallet locally to include countryCode (API may return it)
-type WalletWithCountry = Wallet & { countryCode?: string };
+type WalletWithCountry = Wallet & { countryCode?: string; country_code?: string };
+
+// ------------------------------------------------------------
+// Country code normalization (so CountryFlag can always render)
+// ------------------------------------------------------------
+const COUNTRY_CODE_BY_CURRENCY: Record<string, string> = {
+  CAD: "CA",
+  NGN: "NG",
+  USD: "US",
+  EUR: "EU",
+  GBP: "GB",
+  KES: "KE",
+  GHS: "GH",
+  RWF: "RW",
+};
+
+function normalizeCountryCode(input?: unknown): string {
+  if (typeof input !== "string") return "";
+  const trimmed = input.trim();
+  if (!trimmed) return "";
+  const up = trimmed.toUpperCase();
+  if (up.length === 2) return up;
+  return COUNTRY_CODE_BY_CURRENCY[up] || "";
+}
+
+function getWalletCountryCode(w?: WalletWithCountry | null): string {
+  const anyW = w as any;
+  return normalizeCountryCode(anyW?.countryCode ?? anyW?.country_code ?? w?.currencyCode);
+}
 
 // Quick amount button component
 const QuickAmountButton = ({
@@ -79,6 +109,10 @@ export default function ConvertScreen() {
   // Modal states
   const [showFromPicker, setShowFromPicker] = useState(false);
   const [showToPicker, setShowToPicker] = useState(false);
+
+  // ✅ Search states for custom pickers
+  const [fromSearch, setFromSearch] = useState("");
+  const [toSearch, setToSearch] = useState("");
 
   const handleSelectFrom = useCallback(
     (w: Wallet) => {
@@ -225,7 +259,12 @@ export default function ConvertScreen() {
 
     setQuoteLoading(true);
     try {
-      const response = await getConversionQuote(userPhone, fromWallet.currencyCode, toWallet.currencyCode, parseFloat(fromAmount));
+      const response = await getConversionQuote(
+        userPhone,
+        fromWallet.currencyCode,
+        toWallet.currencyCode,
+        parseFloat(fromAmount)
+      );
 
       if (response.success) {
         setToAmount(response.quote.buyAmount.toFixed(2));
@@ -297,10 +336,7 @@ export default function ConvertScreen() {
     Alert.alert(
       "Confirm Conversion",
       `Convert ${fromAmount} ${fromWallet.currencyCode} to ${toAmount} ${toWallet.currencyCode}?\n\nRate: 1 ${fromWallet.currencyCode} = ${rate?.toFixed(4)} ${toWallet.currencyCode}`,
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Convert", onPress: executeConversionRequest },
-      ]
+      [{ text: "Cancel", style: "cancel" }, { text: "Convert", onPress: executeConversionRequest }]
     );
   };
 
@@ -309,7 +345,12 @@ export default function ConvertScreen() {
 
     setConverting(true);
     try {
-      const response = await executeConversion(userPhone, fromWallet.currencyCode, toWallet.currencyCode, parseFloat(fromAmount));
+      const response = await executeConversion(
+        userPhone,
+        fromWallet.currencyCode,
+        toWallet.currencyCode,
+        parseFloat(fromAmount)
+      );
 
       if (response.success) {
         const conversionData = response.conversion;
@@ -392,7 +433,242 @@ export default function ConvertScreen() {
     setFromAmount("");
     setToAmount("");
     setRate(null);
+
+    // keep refs consistent so polling won’t “snap back”
+    selectedFromCodeRef.current = temp?.currencyCode ?? null;
+    selectedToCodeRef.current = toWallet?.currencyCode ?? null;
   };
+
+  // ------------------------------------------------------------
+  // ✅ Custom pickers with rounded flags (CountryFlag)
+  // ------------------------------------------------------------
+  const filteredFromWallets = wallets
+    .filter((w) => w.currencyCode !== toWallet?.currencyCode)
+    .filter((w) => {
+      const q = fromSearch.toLowerCase().trim();
+      if (!q) return true;
+      const code = String(w.currencyCode || "").toLowerCase();
+      const name = String((w as any)?.currencyName || (w as any)?.accountName || "").toLowerCase();
+      return code.includes(q) || name.includes(q);
+    });
+
+  const filteredToWallets = wallets
+    .filter((w) => w.currencyCode !== fromWallet?.currencyCode)
+    .filter((w) => {
+      const q = toSearch.toLowerCase().trim();
+      if (!q) return true;
+      const code = String(w.currencyCode || "").toLowerCase();
+      const name = String((w as any)?.currencyName || (w as any)?.accountName || "").toLowerCase();
+      return code.includes(q) || name.includes(q);
+    });
+
+  const FromPickerModal = (
+    <Modal visible={showFromPicker} animationType="slide" transparent>
+      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }}>
+        <Pressable
+          style={{ flex: 1 }}
+          onPress={() => {
+            setShowFromPicker(false);
+            setFromSearch("");
+          }}
+        />
+        <View
+          style={{
+            backgroundColor: "#fff",
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            maxHeight: "70%",
+            paddingBottom: 40,
+          }}
+        >
+          <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Pressable
+                onPress={() => {
+                  setShowFromPicker(false);
+                  setFromSearch("");
+                }}
+                style={{ width: 30, height: 30, justifyContent: "center", alignItems: "center" }}
+              >
+                <Text style={{ fontSize: 18, color: "#6B7280" }}>✕</Text>
+              </Pressable>
+              <Text style={{ fontSize: 18, fontWeight: "700", color: "#1F2937" }}>Convert From</Text>
+              <View style={{ width: 30 }} />
+            </View>
+          </View>
+
+          <TextInput
+            style={{
+              marginHorizontal: 16,
+              marginVertical: 12,
+              backgroundColor: "#F3F4F6",
+              borderRadius: 12,
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              fontSize: 16,
+              color: "#1F2937",
+            }}
+            placeholder="Search currency..."
+            placeholderTextColor="#999"
+            value={fromSearch}
+            onChangeText={setFromSearch}
+          />
+
+          <FlatList
+            data={filteredFromWallets}
+            keyExtractor={(item) => String((item as any)?.id ?? item.currencyCode)}
+            renderItem={({ item }) => {
+              const selected =
+                (fromWallet?.currencyCode || "").toUpperCase() === (item.currencyCode || "").toUpperCase();
+              return (
+                <Pressable
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    padding: 16,
+                    marginHorizontal: 16,
+                    marginBottom: 8,
+                    backgroundColor: selected ? "#F0FDF4" : "#F9FAFB",
+                    borderRadius: 12,
+                    borderWidth: selected ? 2 : 1,
+                    borderColor: selected ? "#16A34A" : "#E5E7EB",
+                  }}
+                  onPress={() => {
+                    handleSelectFrom(item as any);
+                    setShowFromPicker(false);
+                    setFromSearch("");
+                  }}
+                >
+                  <CountryFlag
+                    currencyCode={item.currencyCode}
+                    fallbackEmoji={(item as any)?.flag}
+                    size="lg"
+                    style={{ marginRight: 12 }}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, fontWeight: "600", color: "#1F2937" }}>{item.currencyCode}</Text>
+                    <Text style={{ fontSize: 13, color: "#6B7280" }}>
+                      Balance: {getOptimisticBalance(item.balance, item.currencyCode).toFixed(2)} {item.currencyCode}
+                    </Text>
+                  </View>
+                  {selected && <Text style={{ fontSize: 18, color: "#16A34A", fontWeight: "700" }}>✓</Text>}
+                </Pressable>
+              );
+            }}
+            ListEmptyComponent={
+              <Text style={{ textAlign: "center", color: "#9CA3AF", marginTop: 40, fontSize: 16 }}>
+                No wallets found
+              </Text>
+            }
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const ToPickerModal = (
+    <Modal visible={showToPicker} animationType="slide" transparent>
+      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }}>
+        <Pressable
+          style={{ flex: 1 }}
+          onPress={() => {
+            setShowToPicker(false);
+            setToSearch("");
+          }}
+        />
+        <View
+          style={{
+            backgroundColor: "#fff",
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            maxHeight: "70%",
+            paddingBottom: 40,
+          }}
+        >
+          <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Pressable
+                onPress={() => {
+                  setShowToPicker(false);
+                  setToSearch("");
+                }}
+                style={{ width: 30, height: 30, justifyContent: "center", alignItems: "center" }}
+              >
+                <Text style={{ fontSize: 18, color: "#6B7280" }}>✕</Text>
+              </Pressable>
+              <Text style={{ fontSize: 18, fontWeight: "700", color: "#1F2937" }}>Convert To</Text>
+              <View style={{ width: 30 }} />
+            </View>
+          </View>
+
+          <TextInput
+            style={{
+              marginHorizontal: 16,
+              marginVertical: 12,
+              backgroundColor: "#F3F4F6",
+              borderRadius: 12,
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              fontSize: 16,
+              color: "#1F2937",
+            }}
+            placeholder="Search currency..."
+            placeholderTextColor="#999"
+            value={toSearch}
+            onChangeText={setToSearch}
+          />
+
+          <FlatList
+            data={filteredToWallets}
+            keyExtractor={(item) => String((item as any)?.id ?? item.currencyCode)}
+            renderItem={({ item }) => {
+              const selected =
+                (toWallet?.currencyCode || "").toUpperCase() === (item.currencyCode || "").toUpperCase();
+              return (
+                <Pressable
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    padding: 16,
+                    marginHorizontal: 16,
+                    marginBottom: 8,
+                    backgroundColor: selected ? "#F0FDF4" : "#F9FAFB",
+                    borderRadius: 12,
+                    borderWidth: selected ? 2 : 1,
+                    borderColor: selected ? "#16A34A" : "#E5E7EB",
+                  }}
+                  onPress={() => {
+                    handleSelectTo(item as any);
+                    setShowToPicker(false);
+                    setToSearch("");
+                  }}
+                >
+                  <CountryFlag
+                    currencyCode={item.currencyCode}
+                    fallbackEmoji={(item as any)?.flag}
+                    size="lg"
+                    style={{ marginRight: 12 }}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, fontWeight: "600", color: "#1F2937" }}>{item.currencyCode}</Text>
+                    <Text style={{ fontSize: 13, color: "#6B7280" }}>
+                      Balance: {getOptimisticBalance(item.balance, item.currencyCode).toFixed(2)} {item.currencyCode}
+                    </Text>
+                  </View>
+                  {selected && <Text style={{ fontSize: 18, color: "#16A34A", fontWeight: "700" }}>✓</Text>}
+                </Pressable>
+              );
+            }}
+            ListEmptyComponent={
+              <Text style={{ textAlign: "center", color: "#9CA3AF", marginTop: 40, fontSize: 16 }}>
+                No wallets found
+              </Text>
+            }
+          />
+        </View>
+      </View>
+    </Modal>
+  );
 
   if (loading) {
     return (
@@ -408,29 +684,22 @@ export default function ConvertScreen() {
   if (wallets.length < 2) {
     return (
       <ScreenShell>
-        <View style={styles.simpleHeader}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
-            <Text style={styles.backIcon}>←</Text>
-          </Pressable>
-          <View style={{ flex: 1 }} />
-        </View>
-
         <View style={{ flex: 1, padding: 20 }}>
           <View style={styles.headerRow}>
+            <View style={{ flex: 1 }}>
             <Pressable onPress={() => router.back()} style={styles.backBtn}>
               <Text style={styles.backIcon}>←</Text>
             </Pressable>
-            <View style={{ flex: 1 }}>
               <Text style={styles.title}>Convert Currency</Text>
-              <Text style={styles.subtitle}>You need at least 2 currency wallets to convert between currencies.</Text>
-            </View>
-            <Pressable
-              style={styles.primaryBtn}
-              onPress={() => router.push("/addaccount")}
-            >
+              <Text style={styles.subtitle}>
+                You need at least 2 currency wallets to convert between currencies.
+              </Text>
+            <Pressable style={styles.primaryBtn} onPress={() => router.push("/addaccount")}>
               <Text style={{ color: "#fff", fontWeight: "bold", fontSize: 16 }}>+ Add Currency</Text>
             </Pressable>
+            </View>
           </View>
+
           {wallets.length > 0 && (
             <View style={{ marginBottom: 24 }}>
               <Text style={{ fontSize: 16, fontWeight: "600", color: "#333", marginBottom: 12 }}>
@@ -450,16 +719,28 @@ export default function ConvertScreen() {
                     opacity: wallet.status === "active" ? 1 : 0.6,
                   }}
                 >
-                  <CountryFlag currencyCode={wallet.currencyCode} fallbackEmoji={wallet.flag} size="lg" style={{ marginRight: 12 }} />
+                  <CountryFlag
+                    currencyCode={wallet.currencyCode}
+                    fallbackEmoji={(wallet as any).flag}
+                    size="lg"
+                    style={{ marginRight: 12 }}
+                  />
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 16, fontWeight: "600", color: "#333" }}>{wallet.currencyName}</Text>
+                    <Text style={{ fontSize: 16, fontWeight: "600", color: "#333" }}>{(wallet as any).currencyName}</Text>
                     <Text style={{ fontSize: 14, color: "#666" }}>
                       {wallet.formattedBalance} {wallet.currencyCode}
                     </Text>
                   </View>
 
                   {wallet.status !== "active" && (
-                    <View style={{ backgroundColor: "#9E9E9E", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
+                    <View
+                      style={{
+                        backgroundColor: "#9E9E9E",
+                        paddingHorizontal: 8,
+                        paddingVertical: 4,
+                        borderRadius: 4,
+                      }}
+                    >
                       <Text style={{ color: "#fff", fontSize: 10, fontWeight: "600" }}>INACTIVE</Text>
                     </View>
                   )}
@@ -468,23 +749,13 @@ export default function ConvertScreen() {
             </View>
           )}
 
-          {wallets.length === 0 && (
+          {/* {wallets.length === 0 && (
             <View style={{ backgroundColor: "#FFF3E0", borderRadius: 12, padding: 16, marginBottom: 24 }}>
               <Text style={{ color: "#E65100", fontSize: 14 }}>
                 You don't have any currency wallets yet. Add your first currency to get started.
               </Text>
             </View>
-          )}
-
-          <Pressable
-            style={{ backgroundColor: "#2E9E6A", borderRadius: 12, padding: 16, alignItems: "center" }}
-            onPress={() => router.push("/addaccount")}
-          >
-            <Text style={{ color: "#fff", fontWeight: "bold", fontSize: 16 }}>
-              + Add {wallets.length === 0 ? "Currency" : "Another Currency"}
-            </Text>
-          </Pressable>
-
+          )} */}
           <Text style={{ fontSize: 12, color: "#999", textAlign: "center", marginTop: 16 }}>
             Add {wallets.length === 0 ? "at least 2 currencies" : "one more currency"} to start converting
           </Text>
@@ -537,7 +808,8 @@ export default function ConvertScreen() {
               <CurrencyPill
                 flag={fromWallet?.flag || "🏳️"}
                 code={fromWallet?.currencyCode || "Select"}
-                countryCode={fromWallet?.countryCode ?? ""}
+                // ✅ normalized so pill and any internal logic remains consistent
+                countryCode={getWalletCountryCode(fromWallet)}
                 onPress={() => setShowFromPicker(true)}
               />
             </View>
@@ -546,14 +818,36 @@ export default function ConvertScreen() {
               Balance: {fromDisplayBalance.toFixed(2)} {fromWallet?.currencyCode || ""}
             </Text>
 
-            {balanceExceeded && <Text style={{ color: "#EF4444", fontSize: 12, marginTop: 4 }}>⚠️ Insufficient balance</Text>}
-            {fromHasPending && <Text style={{ color: "#F59E0B", fontSize: 12, marginTop: 4 }}>⏳ Settlement pending - conversion blocked</Text>}
+            {balanceExceeded && (
+              <Text style={{ color: "#EF4444", fontSize: 12, marginTop: 4 }}>⚠️ Insufficient balance</Text>
+            )}
+            {fromHasPending && (
+              <Text style={{ color: "#F59E0B", fontSize: 12, marginTop: 4 }}>
+                ⏳ Settlement pending - conversion blocked
+              </Text>
+            )}
 
             <View style={{ flexDirection: "row", marginTop: 12 }}>
-              <QuickAmountButton label="25%" onPress={() => handleQuickAmount(0.25)} disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending} />
-              <QuickAmountButton label="50%" onPress={() => handleQuickAmount(0.5)} disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending} />
-              <QuickAmountButton label="75%" onPress={() => handleQuickAmount(0.75)} disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending} />
-              <QuickAmountButton label="MAX" onPress={() => handleQuickAmount(1.0)} disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending} />
+              <QuickAmountButton
+                label="25%"
+                onPress={() => handleQuickAmount(0.25)}
+                disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending}
+              />
+              <QuickAmountButton
+                label="50%"
+                onPress={() => handleQuickAmount(0.5)}
+                disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending}
+              />
+              <QuickAmountButton
+                label="75%"
+                onPress={() => handleQuickAmount(0.75)}
+                disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending}
+              />
+              <QuickAmountButton
+                label="MAX"
+                onPress={() => handleQuickAmount(1.0)}
+                disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending}
+              />
             </View>
           </View>
 
@@ -590,7 +884,7 @@ export default function ConvertScreen() {
               <CurrencyPill
                 flag={toWallet?.flag || "🏳️"}
                 code={toWallet?.currencyCode || "Select"}
-                countryCode={toWallet?.countryCode ?? ""}
+                countryCode={getWalletCountryCode(toWallet)}
                 onPress={() => setShowToPicker(true)}
               />
             </View>
@@ -613,38 +907,23 @@ export default function ConvertScreen() {
           )}
 
           {/* Convert Button */}
-          <Pressable style={!canConvert ? styles.disabledBigBtn : styles.primaryBtn} onPress={handleConvert} disabled={!canConvert || converting}>
+          <Pressable
+            style={!canConvert ? styles.disabledBigBtn : styles.primaryBtn}
+            onPress={handleConvert}
+            disabled={!canConvert || converting}
+          >
             {converting ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={{ color: canConvert ? "#fff" : "#B3B3B3", fontWeight: "900", fontSize: 18 }}>Convert</Text>
+              <Text style={{ color: canConvert ? "#fff" : "#B3B3B3", fontWeight: "900", fontSize: 18 }}>
+                Convert
+              </Text>
             )}
           </Pressable>
 
-          {/* Pickers */}
-          <CurrencyPickerModal
-            visible={showFromPicker}
-            onClose={() => setShowFromPicker(false)}
-            wallets={wallets.filter((w) => w.currencyCode !== toWallet?.currencyCode)}
-            selected={fromWallet}
-            onSelect={(w) => {
-              handleSelectFrom(w);
-              setShowFromPicker(false);
-            }}
-            title="Convert From"
-          />
-
-          <CurrencyPickerModal
-            visible={showToPicker}
-            onClose={() => setShowToPicker(false)}
-            wallets={wallets.filter((w) => w.currencyCode !== fromWallet?.currencyCode)}
-            selected={toWallet}
-            onSelect={(w) => {
-              handleSelectTo(w);
-              setShowToPicker(false);
-            }}
-            title="Convert To"
-          />
+          {/* ✅ FIXED: Rounded-flag pickers (replaces CurrencyPickerModal) */}
+          {FromPickerModal}
+          {ToPickerModal}
         </KeyboardAvoidingView>
       </TouchableWithoutFeedback>
     </ScreenShell>

@@ -1,11 +1,11 @@
 export const COLORS = {
-  primary: "#2E9E6A",
+  primary: "#28b085ff",
   bg: "#F6F3F0",
   card: "#E9E5E1",
   text: "#1E1E1E",
   muted: "#6F6F6F",
   line: "#E2DDD8",
-  green: "#2E9E6A",
+  green: "#28b085ff",
   blue: "#2872e0ff",
   greenDark: "#1E7E52",
   greenSoft: "#E6F5EC",

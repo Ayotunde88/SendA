@@ -435,3 +435,94 @@ export function toUserAccount(wallet: SyncedWallet): {
     status: wallet.status,
   };
 }
+
+// ============ RECENT RECIPIENTS API ============
+
+export interface RecentRecipientFromDB {
+  id: string;
+  accountName: string;
+  accountNumber: string;
+  bankCode: string;
+  bankName: string;
+  destCurrency: string;
+  lastSentAt: number;
+  lastAmount: number | null;
+  createdAt: number;
+}
+
+export interface RecentRecipientsResponse {
+  filter: any;
+  success: boolean;
+  recipients: RecentRecipientFromDB[];
+  total: number;
+  message?: string;
+}
+
+/**
+ * Get recent recipients from the database.
+ * This replaces the AsyncStorage-based approach for more reliability.
+ * 
+ * @param phone - User's phone number
+ * @param limit - Maximum number of recipients to return (default: 10)
+ */
+export async function getRecentRecipientsFromDB(
+  phone: string,
+  limit: number = 10
+): Promise<RecentRecipientsResponse> {
+  try {
+    if (!phone) {
+      return { filter: null, success: true, recipients: [], total: 0 };
+    }
+    
+    const encodedPhone = encodeURIComponent(phone);
+    
+    const response = await fetchWithTimeout(
+      `${API_BASE_URL}/users/recipients/recent?phone=${encodedPhone}&limit=${limit}`,
+      {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      },
+      10000
+    );
+
+    if (!response.ok) {
+      console.log('[SyncAPI] getRecentRecipientsFromDB failed:', response.status);
+      return {
+        filter: null,
+        success: false,
+        recipients: [],
+        total: 0,
+        message: `HTTP ${response.status}`,
+      };
+    }
+
+    const data = await response.json();
+    
+    if (data.success && Array.isArray(data.recipients)) {
+      return {
+        filter: data.filter ?? null,
+        success: true,
+        recipients: data.recipients,
+        total: data.total || data.recipients.length,
+      };
+    }
+    
+    return {
+      filter: null,
+      success: false,
+      recipients: [],
+      total: 0,
+      message: data.message || 'Invalid response',
+    };
+  } catch (error: any) {
+    console.error('[SyncAPI] getRecentRecipientsFromDB error:', error.message);
+    return {
+      filter: null,
+      success: false,
+      recipients: [],
+      total: 0,
+      message: error.message || 'Network error',
+    };
+  }
+}
+

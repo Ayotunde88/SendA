@@ -21,7 +21,7 @@ import {
   ScrollView,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useRouter, useLocalSearchParams } from "expo-router";
+import { useRouter, useLocalSearchParams, usePathname } from "expo-router";
 import ScreenShell from "../../../components/ScreenShell";
 import PinVerificationModal from "../../../components/PinVerificationModal";
 import { otherstyles } from "../../../theme/otherstyles";
@@ -33,6 +33,7 @@ import {
   COUNTRY_NAMES,
   CURRENCY_TO_COUNTRY,
 } from "../../../api/flutterwave";
+import { sendInteracPayout } from "../../../api/paysafe";
 
 interface RecipientData {
   accountName: string;
@@ -41,6 +42,7 @@ interface RecipientData {
   bankName: string;
   currency: string;
   countryCode: string;
+  isInterac?: string;
 }
 
 export default function RecipientConfirmScreen() {
@@ -67,15 +69,14 @@ export default function RecipientConfirmScreen() {
       return null;
     }
   }, [params.recipient]);
-
+  const isInterac = recipient?.isInterac === "true" || recipient?.bankCode === "INTERAC";
   const destCurrency = (recipient?.currency || params.destCurrency || "NGN").toUpperCase();
   const countryCode =
     recipient?.countryCode ||
     CURRENCY_TO_COUNTRY[destCurrency] ||
     "NG";
 
-  const countryName = COUNTRY_NAMES[countryCode] || countryCode;
-
+ const countryName = isInterac ? "Canada" : (COUNTRY_NAMES[countryCode] || countryCode);
   const symbol = getCurrencySymbol(destCurrency);
   const fromCurrency = (params.fromCurrency || "USD").toUpperCase();
   const fromSymbol = getCurrencySymbol(fromCurrency);
@@ -128,44 +129,62 @@ export default function RecipientConfirmScreen() {
     setSending(true);
 
     try {
-      const response = await sendFlutterwave({
-        phone: userPhone,
-        amount: toAmount,
-        currency: destCurrency,
-        accountNumber: recipient.accountNumber,
-        bankCode: recipient.bankCode,
-        bankName: recipient.bankName,
-        accountName: recipient.accountName,
-        fromCurrency,
-        fromAmount,
-        narration: `Transfer to ${recipient.accountName}`,
-      });
+      let response;
+
+      if (isInterac) {
+        // CAD via Interac e-Transfer
+        response = await sendInteracPayout({
+          phone: userPhone,
+          amount: toAmount,
+          recipientEmail: recipient.accountNumber, // Email stored as accountNumber
+          recipientName: recipient.accountName,
+          message: `Transfer to ${recipient.accountName}`,
+        });
+      } else {
+        // African currencies via Flutterwave
+        response = await sendFlutterwave({
+          phone: userPhone,
+          amount: toAmount,
+          currency: destCurrency,
+          accountNumber: recipient.accountNumber,
+          bankCode: recipient.bankCode,
+          bankName: recipient.bankName,
+          accountName: recipient.accountName,
+          fromCurrency: params.fromCurrency,
+          fromAmount: fromAmount,
+          narration: `Transfer to ${recipient.accountName}`,
+        });
+      }
 
       if (response.success) {
+        const successMessage = isInterac
+          ? `An Interac e-Transfer of ${symbol}${toAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} has been sent to ${recipient.accountNumber}`
+          : `${symbol}${toAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ${destCurrency} has been sent to ${recipient.accountName}`;
+
         router.push({
         pathname: "/result",
         params: {
           type: "success",
           title: "Transfer Successful",
-          message: `${formattedToAmount} ${destCurrency} has been sent to ${recipient.accountName}`,
+          message: `${isInterac ? successMessage : formattedToAmount} ${destCurrency} has been sent to ${recipient.accountName}`,
           primaryText: "Done",
-          primaryRoute: "back",
-          secondaryText: "View transaction",
-          secondaryRoute: "/sendmoney",
+          primaryRoute: "/(tabs)/",
+          secondaryText: "Go to Home",
+          secondaryRoute: "/(tabs)/",
         },
       });
       } else {
-        Alert.alert("Transfer Failed", response.message || "Failed to send money. Please try again.");
+        // Alert.alert("Transfer Failed", response.message || "Failed to send money. Please try again.");
         router.push({
         pathname: "/result",
         params: {
-          type: "Failure",
+          type: "error",
           title: "Transfer Failed",
           message: `${formattedToAmount} ${destCurrency} could not be sent to ${recipient.accountName}`,
           primaryText: "Try Again",
-          primaryRoute: "/sendmoney",
-          secondaryText: "View transaction",
-          secondaryRoute: "/sendmoney",
+          primaryRoute: "/(tabs)/",
+          secondaryText: "Go to Home",
+          secondaryRoute: "/(tabs)/",
         },
       });
       }
@@ -261,7 +280,7 @@ export default function RecipientConfirmScreen() {
           <View style={otherstyles.confirmDivider} />
 
           <View style={otherstyles.confirmDetailBlock}>
-            <Text style={otherstyles.confirmDetailLabel}>Account number</Text>
+            <Text style={otherstyles.confirmDetailLabel}>{isInterac ? "Email" : "Account Number"}</Text>
             <Text style={[otherstyles.confirmDetailValue, otherstyles.confirmMono]}>
               {recipient.accountNumber}
             </Text>
@@ -313,7 +332,7 @@ export default function RecipientConfirmScreen() {
 
         <Pressable
           style={otherstyles.confirmCancelBtn}
-          onPress={() => router.back()}
+          onPress={() => router.push("/(tabs)")}
           disabled={sending}
         >
           <Text style={otherstyles.confirmCancelText}>Cancel</Text>

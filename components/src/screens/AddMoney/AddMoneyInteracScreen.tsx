@@ -130,7 +130,7 @@ export default function AddMoneyInteracScreen() {
           </View>
 
           <View style={styles.infoCard}>
-            <Text style={styles.infoIcon}>🇨🇦</Text>
+            {/* <Text style={styles.infoIcon}>🇨🇦</Text> */}
             <CountryFlag countryCode="CA" size="md" style={{ marginRight: 12 }} />
             <Text style={styles.infoText}>
               Instant deposits from your Canadian bank account. You'll complete the transfer in your banking app.

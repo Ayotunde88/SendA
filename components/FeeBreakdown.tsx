@@ -2,7 +2,7 @@
  * FeeBreakdown Component
  * Displays transparent fee information for conversions, sends, and withdrawals
  */
-import React from "react";
+import React, { useMemo } from "react";
 import { View, Text, StyleSheet } from "react-native";
 
 export interface FeeInfo {
@@ -19,9 +19,9 @@ export interface FeeInfo {
 
 interface FeeBreakdownProps {
   fee: FeeInfo | null;
-  sellAmount: number;
+  sellAmount: number | null | undefined;
   sellCurrency: string;
-  buyAmount: number;
+  buyAmount: number | null | undefined;
   buyCurrency: string;
   rate: number | null;
   compact?: boolean;
@@ -36,44 +36,70 @@ export default function FeeBreakdown({
   rate,
   compact = false,
 }: FeeBreakdownProps) {
-  const formatAmount = (amount: number, currency: string) => {
-    const symbols: Record<string, string> = {
-      USD: "$",
-      EUR: "€",
-      GBP: "£",
-      NGN: "₦",
-      CAD: "C$",
-      GHS: "₵",
-      KES: "KSh",
-      RWF: "FRw",
-    };
-    const symbol = symbols[currency] || "";
-    return `${symbol}${amount.toLocaleString("en-US", {
+  const symbols: Record<string, string> = {
+    USD: "$",
+    EUR: "€",
+    GBP: "£",
+    NGN: "₦",
+    CAD: "C$",
+    GHS: "₵",
+    KES: "KSh",
+    RWF: "FRw",
+  };
+
+  const toNumber = (v: any) => {
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const formatAmount = (amount: number | null | undefined, currency: string) => {
+    const safe = toNumber(amount);
+    const ccy = String(currency || "").toUpperCase().trim();
+    const symbol = symbols[ccy] || "";
+    return `${symbol}${safe.toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })}`;
   };
 
-  const hasFee = fee && fee.feeAmount > 0;
-  const totalDebit = hasFee
-    ? (fee.feeCurrency === sellCurrency
-        ? sellAmount + fee.feeAmount
-        : sellAmount)
-    : sellAmount;
+  const hasFee = !!fee && toNumber(fee.feeAmount) > 0;
 
-  // Check if we should show dual currency display
-  const showDualCurrency = fee?.feeAmountInBaseCurrency && fee?.baseCurrency && 
-    fee.baseCurrency !== fee.feeCurrency;
+  // Fee deducted from sell amount (your logic)
+  const totalYouGet = useMemo(() => {
+    const sell = toNumber(sellAmount);
+    if (!hasFee) return sell;
 
-  // Format fee with optional base currency conversion
-  const formatFeeWithConversion = () => {
-    if (!fee) return '';
-    const originalFee = formatAmount(fee.feeAmount, fee.feeCurrency);
+    const feeAmt = toNumber(fee?.feeAmount);
+    const feeCcy = String(fee?.feeCurrency || "").toUpperCase().trim();
+    const sellCcy = String(sellCurrency || "").toUpperCase().trim();
+
+    return feeCcy === sellCcy ? sell - feeAmt : sell;
+  }, [sellAmount, hasFee, fee, sellCurrency]);
+
+  const showDualCurrency =
+    !!fee &&
+    fee.feeAmountInBaseCurrency != null &&
+    !!fee.baseCurrency &&
+    String(fee.baseCurrency).toUpperCase().trim() !==
+      String(fee.feeCurrency).toUpperCase().trim();
+
+  const primaryFeeDisplay = useMemo(() => {
+    if (!fee) return "";
     if (showDualCurrency) {
-      return `${originalFee} (≈ ${fee.baseCurrencySymbol || ''}${fee.feeAmountInBaseCurrency!.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${fee.baseCurrency})`;
+      const baseAmt = toNumber(fee.feeAmountInBaseCurrency);
+      const baseSymbol = fee.baseCurrencySymbol || "";
+      return `${baseSymbol}${baseAmt.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
     }
-    return originalFee;
-  };
+    return formatAmount(fee.feeAmount, fee.feeCurrency);
+  }, [fee, showDualCurrency]);
+
+  const secondaryFeeDisplay = useMemo(() => {
+    if (!fee || !showDualCurrency) return "";
+    return `≈ ${formatAmount(fee.feeAmount, fee.feeCurrency)}`;
+  }, [fee, showDualCurrency]);
 
   if (compact) {
     return (
@@ -81,16 +107,15 @@ export default function FeeBreakdown({
         {hasFee && (
           <View style={styles.compactRow}>
             <Text style={styles.compactLabel}>Fee</Text>
-            <Text style={styles.compactValue} numberOfLines={2}>
-              {formatFeeWithConversion()}
-            </Text>
+            <View style={{ alignItems: "flex-end" }}>
+              <Text style={styles.compactValue}>{primaryFeeDisplay}</Text>
+              {!!secondaryFeeDisplay && <Text style={styles.feeConversion}>{secondaryFeeDisplay}</Text>}
+            </View>
           </View>
         )}
         <View style={styles.compactRow}>
-          <Text style={styles.compactLabelBold}>Total</Text>
-          <Text style={styles.compactValueBold}>
-            {formatAmount(totalDebit, sellCurrency)}
-          </Text>
+          <Text style={styles.compactLabelBold}>Total you get</Text>
+          <Text style={styles.compactValueBold}>{formatAmount(totalYouGet, sellCurrency)}</Text>
         </View>
       </View>
     );
@@ -99,73 +124,53 @@ export default function FeeBreakdown({
   return (
     <View style={styles.container}>
       <Text style={styles.sectionTitle}>Transaction Summary</Text>
-      
-      {/* Amount you're converting */}
+
       <View style={styles.row}>
         <Text style={styles.label}>Conversion amount</Text>
-        <Text style={styles.value}>
-          {formatAmount(sellAmount, sellCurrency)}
-        </Text>
+        <Text style={styles.value}>{formatAmount(sellAmount, sellCurrency)}</Text>
       </View>
 
-      {/* Platform fee */}
       {hasFee && (
         <View style={styles.row}>
           <View style={styles.labelWithBadge}>
             <Text style={styles.label}>Platform fee</Text>
-            {fee.feeType === "percentage" && fee.feePercentage && (
+            {fee?.feeType === "percentage" && fee?.feePercentage != null && (
               <View style={styles.badge}>
-                <Text style={styles.badgeText}>{fee.feePercentage}%</Text>
+                <Text style={styles.badgeText}>{toNumber(fee.feePercentage)}%</Text>
               </View>
             )}
           </View>
-          <View style={{ alignItems: 'flex-end', flexShrink: 1, maxWidth: '55%' }}>
-            <Text style={styles.feeValue}>
-              {formatAmount(fee.feeAmount, fee.feeCurrency)}
-            </Text>
-            {showDualCurrency && (
-              <Text style={styles.feeConversion}>
-                ≈ {fee.baseCurrencySymbol || ''}{fee.feeAmountInBaseCurrency!.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {fee.baseCurrency}
-              </Text>
-            )}
+
+          <View style={{ alignItems: "flex-end", flexShrink: 1, maxWidth: "55%" }}>
+            <Text style={styles.feeValue}>{primaryFeeDisplay}</Text>
+            {!!secondaryFeeDisplay && <Text style={styles.feeConversion}>{secondaryFeeDisplay}</Text>}
           </View>
         </View>
       )}
 
-      {/* Divider */}
       <View style={styles.divider} />
 
-      {/* Total debit */}
       <View style={styles.row}>
-        <Text style={styles.totalLabel}>Total you pay</Text>
-        <Text style={styles.totalValue}>
-          {formatAmount(totalDebit, sellCurrency)}
-        </Text>
+        <Text style={styles.totalLabel}>Total you get</Text>
+        <Text style={styles.totalValue}>{formatAmount(totalYouGet, sellCurrency)}</Text>
       </View>
 
-      {/* Exchange rate */}
-      {rate && (
+      {!!rate && Number.isFinite(rate) && (
         <View style={styles.rateContainer}>
           <Text style={styles.rateText}>
-            1 {sellCurrency} = {rate.toFixed(4)} {buyCurrency}
+            1 {sellCurrency} = {toNumber(rate).toFixed(4)} {buyCurrency}
           </Text>
         </View>
       )}
 
-      {/* What you receive */}
       <View style={styles.receiveContainer}>
         <Text style={styles.receiveLabel}>You'll receive</Text>
-        <Text style={styles.receiveValue}>
-          {formatAmount(buyAmount, buyCurrency)}
-        </Text>
+        <Text style={styles.receiveValue}>{formatAmount(buyAmount, buyCurrency)}</Text>
       </View>
 
-      {/* No hidden fees note */}
       <View style={styles.noteContainer}>
         <Text style={styles.noteIcon}>✓</Text>
-        <Text style={styles.noteText}>
-          Mid-market rate • No hidden fees
-        </Text>
+        <Text style={styles.noteText}>Mid-market rate • No hidden fees</Text>
       </View>
     </View>
   );
