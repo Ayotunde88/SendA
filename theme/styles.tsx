@@ -98,7 +98,8 @@ slide: {
     height: 50,
     paddingVertical: 15,
     borderRadius: 999,
-    backgroundColor: "#3c3b3bff",
+    backgroundColor: "#3457f1ff",
+    // backgroundColor: "#3c3b3bff",
     alignItems: "center",
     justifyContent: "center",
     marginTop: 20,
@@ -258,8 +259,8 @@ slide: {
     backgroundColor: "#ffffffff",
     borderColor: "transparent",
     borderWidth: 1,
-    borderLeftWidth: 0,
-    borderRightWidth: 0,
+    // borderLeftWidth: 0,
+    // borderRightWidth: 0,
     borderRadius: 9,
     padding: 14,
     flexDirection: "row",
@@ -1984,8 +1985,8 @@ accountCardShadow: {
 
 cardCornerImage: {
   position: "absolute",
-  right: -15,   // tweak for visual style
-  bottom: -10,  // tweak for visual style
+  right: -35,   // tweak for visual style
+  bottom: -30,  // tweak for visual style
   width: 90,
   height: 90,
   opacity: 1, // optional (fintech look)

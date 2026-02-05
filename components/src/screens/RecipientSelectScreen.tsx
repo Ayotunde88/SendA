@@ -57,6 +57,15 @@ function getRecipientCurrency(r: any): string {
   return typeof cur === "string" ? cur.toUpperCase().trim() : "";
 }
 
+// ✅ detect Interac recipient (supports multiple backend shapes)
+function isInteracRecipient(r: any): boolean {
+  // could be boolean true, "true", 1, or recipientType === "interac"
+  const v = r?.isInterac ?? r?.interac ?? r?.is_interac;
+  if (v === true || v === 1 || v === "1" || v === "true") return true;
+  const t = String(r?.type || r?.recipientType || r?.channel || "").toLowerCase();
+  return t === "interac" || t === "etransfer" || t === "e-transfer";
+}
+
 export default function RecipientSelectScreen() {
   const raw = useLocalSearchParams<{
     destCurrency?: string | string[];
@@ -80,13 +89,19 @@ export default function RecipientSelectScreen() {
   }, [raw.destCurrency, raw.fromWalletId, raw.fromCurrency, raw.fromAmount, raw.toAmount, raw.rate]);
 
   const destCurrency = (navParams.destCurrency || "NGN").toUpperCase().trim();
-  const countryCode = (CURRENCY_TO_COUNTRY[destCurrency] || "NG").toUpperCase();
-  const countryName = COUNTRY_NAMES[countryCode] || countryCode;
+
+  // ✅ Interac support
+  const isInterac = destCurrency === "CAD";
+  const countryCode = isInterac ? "CA" : (CURRENCY_TO_COUNTRY[destCurrency] || "NG").toUpperCase();
+  const countryName = isInterac ? "Canada" : (COUNTRY_NAMES[countryCode] || countryCode);
+
+  // ✅ supported destinations: Interac CAD OR flutterwave supported
   const isFlutterwave = isFlutterwaveCurrency(destCurrency);
+  const isSupportedDest = isInterac || isFlutterwave;
 
   const [search, setSearch] = useState("");
 
-  // ✅ Use ONE loading flag for this screen (you had loadingSaved but never updated it)
+  // ✅ Use ONE loading flag for this screen
   const [loadingSaved, setLoadingSaved] = useState(true);
 
   const [saved, setSaved] = useState<RecentRecipientFromDB[]>([]);
@@ -94,6 +109,13 @@ export default function RecipientSelectScreen() {
   useEffect(() => {
     let mounted = true;
     setLoadingSaved(true);
+
+    // If unsupported currency, don't fetch
+    if (!isSupportedDest) {
+      setSaved([]);
+      setLoadingSaved(false);
+      return;
+    }
 
     (async () => {
       try {
@@ -103,19 +125,18 @@ export default function RecipientSelectScreen() {
           return;
         }
 
+        // ✅ Keep your same API call, then filter by currency (CAD will work if your DB stores CAD recipients)
         const rawRecipients = await getRecentRecipientsFromDB(phone);
         if (!mounted) return;
 
-        // ✅ normalize (handles null / object / array)
         const recipientsArr = normalizeRecipients(rawRecipients);
 
-        // ✅ filter safely by destination currency
-        const filtered = recipientsArr.filter((r: any) => {
+        const filteredByCurrency = recipientsArr.filter((r: any) => {
           const rCur = getRecipientCurrency(r);
           return rCur && rCur === destCurrency;
         });
 
-        setSaved(filtered);
+        setSaved(filteredByCurrency);
       } catch (err) {
         console.error("Failed to load recipients from DB:", err);
         if (mounted) setSaved([]);
@@ -127,17 +148,7 @@ export default function RecipientSelectScreen() {
     return () => {
       mounted = false;
     };
-  }, [destCurrency]);
-
-  // Redirect CAD to EFT screen
-  // useEffect(() => {
-  //   if (destCurrency === "CAD") {
-  //     router.replace({
-  //       pathname: "/eft-bank-details" as any,
-  //       params: navParams as any,
-  //     });
-  //   }
-  // }, [destCurrency, navParams]);
+  }, [destCurrency, isSupportedDest]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -151,12 +162,19 @@ export default function RecipientSelectScreen() {
     });
   }, [search, saved]);
 
-  if (!isFlutterwave) {
+  // ✅ Unsupported currency message (instead of spinner forever)
+  if (!isSupportedDest) {
     return (
       <ScreenShell>
         <View style={otherstyles.centerState}>
-          <ActivityIndicator size="small" color={COLORS.primary} />
-          <Text style={otherstyles.centerStateText}>Loading…</Text>
+          <Text style={[otherstyles.centerStateText, { fontWeight: "800" }]}>Unsupported currency</Text>
+          <Text style={[otherstyles.centerStateText, { marginTop: 6 }]}>
+            Sending to {destCurrency} is not currently supported.
+          </Text>
+
+          <Pressable onPress={() => router.back()} style={{ marginTop: 14 }}>
+            <Text style={{ color: COLORS.primary, fontWeight: "900" }}>Go back</Text>
+          </Pressable>
         </View>
       </ScreenShell>
     );
@@ -185,7 +203,7 @@ export default function RecipientSelectScreen() {
         <View style={[styles.inputBox, otherstyles.recipientSelectSearchWrap]}>
           <Text style={styles.inputIcon}>⌕</Text>
           <TextInput
-            placeholder="Search name, bank, or account number"
+            placeholder={isInterac ? "Search name or email" : "Search name, bank, or account number"}
             placeholderTextColor="#9CA3AF"
             value={search}
             onChangeText={setSearch}
@@ -203,6 +221,8 @@ export default function RecipientSelectScreen() {
                 ...navParams,
                 countryCode,
                 countryName,
+                // ✅ tell the new-recipient screen it's Interac flow (optional but helpful)
+                ...(isInterac ? { isInterac: "true" } : {}),
               } as any,
             })
           }
@@ -213,8 +233,12 @@ export default function RecipientSelectScreen() {
           </View>
 
           <View style={{ flex: 1 }}>
-            <Text style={otherstyles.recipientSelectNewTitle}>New recipient</Text>
-            <Text style={otherstyles.recipientSelectNewSub}>Add a {countryName} bank recipient</Text>
+            <Text style={otherstyles.recipientSelectNewTitle}>
+              {isInterac ? "Send via Interac e-Transfer" : "New recipient"}
+            </Text>
+            <Text style={otherstyles.recipientSelectNewSub}>
+              {isInterac ? "Add a Canadian Interac recipient" : `Add a ${countryName} bank recipient`}
+            </Text>
           </View>
 
           <Text style={otherstyles.recipientSelectChevron}>›</Text>
@@ -222,14 +246,17 @@ export default function RecipientSelectScreen() {
 
         {/* Section title */}
         <View style={otherstyles.recipientSelectSectionRow}>
-          <Text style={otherstyles.recipientSelectSectionTitle}>Saved recipients</Text>
-          <Text style={otherstyles.recipientSelectSectionCount}>
-            {loadingSaved ? "" : `${filtered.length}`}
+          <Text style={otherstyles.recipientSelectSectionTitle}>
+            {isInterac ? "Saved Interac recipients" : "Saved recipients"}
           </Text>
+          <Text style={otherstyles.recipientSelectSectionCount}>{loadingSaved ? "" : `${filtered.length}`}</Text>
         </View>
 
         {/* List */}
-        <ScrollView contentContainerStyle={otherstyles.recipientSelectListContent} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={otherstyles.recipientSelectListContent}
+          showsVerticalScrollIndicator={false}
+        >
           {loadingSaved ? (
             <View style={otherstyles.centerState}>
               <ActivityIndicator size="small" color={COLORS.primary} />
@@ -238,7 +265,9 @@ export default function RecipientSelectScreen() {
           ) : filtered.length === 0 ? (
             <View style={otherstyles.recipientSelectEmpty}>
               <Text style={otherstyles.recipientSelectEmptyIcon}>👥</Text>
-              <Text style={otherstyles.recipientSelectEmptyTitle}>No saved recipients</Text>
+              <Text style={otherstyles.recipientSelectEmptyTitle}>
+                {isInterac ? "No saved Interac recipients" : "No saved recipients"}
+              </Text>
               <Text style={otherstyles.recipientSelectEmptySub}>
                 Add a recipient to send money faster next time.
               </Text>
@@ -248,11 +277,13 @@ export default function RecipientSelectScreen() {
                 onPress={() =>
                   router.push({
                     pathname: "/recipientnew" as any,
-                    params: { ...navParams, countryCode, countryName } as any,
+                    params: { ...navParams, countryCode, countryName, ...(isInterac ? { isInterac: "true" } : {}) } as any,
                   })
                 }
               >
-                <Text style={otherstyles.recipientSelectEmptyBtnText}>Add recipient</Text>
+                <Text style={otherstyles.recipientSelectEmptyBtnText}>
+                  {isInterac ? "Add Interac recipient" : "Add recipient"}
+                </Text>
               </Pressable>
             </View>
           ) : (
@@ -261,9 +292,15 @@ export default function RecipientSelectScreen() {
                 <View key={`${r?.id || ""}-${r?.bankCode || ""}-${r?.accountNumber || ""}-${idx}`}>
                   <Pressable
                     onPress={() => {
-                      // ensure recipient payload always includes currency + countryCode
                       const rCurrency = getRecipientCurrency(r) || destCurrency;
-                      const cc = (CURRENCY_TO_COUNTRY[rCurrency] || countryCode || "NG").toUpperCase();
+
+                      // ✅ For CAD, always force CA
+                      const cc = (rCurrency === "CAD"
+                        ? "CA"
+                        : (CURRENCY_TO_COUNTRY[rCurrency] || countryCode || "NG")
+                      ).toUpperCase();
+
+                      const interacFlag = isInteracRecipient(r) || rCurrency === "CAD";
 
                       router.push({
                         pathname: "/recipientconfirm" as any,
@@ -273,6 +310,8 @@ export default function RecipientSelectScreen() {
                             ...r,
                             destCurrency: rCurrency,
                             countryCode: cc,
+                            // ✅ standardize this flag for your confirm screen
+                            ...(interacFlag ? { isInterac: true } : {}),
                           }),
                           mode: "saved",
                         } as any,
@@ -288,8 +327,11 @@ export default function RecipientSelectScreen() {
                       <Text style={otherstyles.recipientSelectRowName} numberOfLines={1}>
                         {r?.accountName || "Unknown"}
                       </Text>
+
                       <Text style={otherstyles.recipientSelectRowSub} numberOfLines={1}>
-                        {r?.bankName || "—"} • {String(r?.accountNumber || "—")}
+                        {isInterac
+                          ? `Interac • ${String(r?.accountNumber || "—")}`
+                          : `${r?.bankName || "—"} • ${String(r?.accountNumber || "—")}`}
                       </Text>
                     </View>
 

@@ -21,16 +21,22 @@ import CurrencyPill from "./../../CurrencyPill";
 import { Wallet } from "./../../CurrencyPickerModal";
 import { styles } from "../../../theme/styles";
 import { router } from "expo-router";
-import { getUserWallets, getConversionQuote, executeConversion } from "../../../api/config";
-import { addPendingSettlement, usePendingSettlements } from "../../../hooks/usePendingSettlements";
+import {
+  getUserWallets,
+  getConversionQuote,
+  executeConversion,
+  clearAllBalanceCaches,
+} from "../../../api/config";
+import { addPendingSettlement, usePendingSettlements, clearPendingForCurrency } from "../../../hooks/usePendingSettlements";
 import FeeBreakdown, { FeeInfo } from "../../../components/FeeBreakdown";
 import CountryFlag from "../../../components/CountryFlag";
+import { userScopedKey } from "../../../utils/cacheKeys";
 
 // ✅ FIX: extend Wallet locally to include countryCode (API may return it)
 type WalletWithCountry = Wallet & { countryCode?: string; country_code?: string };
 
 // ------------------------------------------------------------
-// Country code normalization (so CountryFlag can always render)
+// Helpers
 // ------------------------------------------------------------
 const COUNTRY_CODE_BY_CURRENCY: Record<string, string> = {
   CAD: "CA",
@@ -55,6 +61,29 @@ function normalizeCountryCode(input?: unknown): string {
 function getWalletCountryCode(w?: WalletWithCountry | null): string {
   const anyW = w as any;
   return normalizeCountryCode(anyW?.countryCode ?? anyW?.country_code ?? w?.currencyCode);
+}
+
+function normCcy(v: any) {
+  return String(v || "").toUpperCase().trim();
+}
+
+function toNumberSafe(v: any): number {
+  if (v === null || v === undefined) return 0;
+  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+  if (typeof v === "string") {
+    const n = parseFloat(v.replace(/,/g, "").trim());
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
+function normalizeWalletBalances(list: any[]): WalletWithCountry[] {
+  if (!Array.isArray(list)) return [];
+  return list.map((w: any) => ({
+    ...w,
+    currencyCode: normCcy(w.currencyCode),
+    balance: toNumberSafe(w.balance),
+  }));
 }
 
 // Quick amount button component
@@ -102,27 +131,42 @@ export default function ConvertScreen() {
   const [balanceExceeded, setBalanceExceeded] = useState(false);
   const [feeInfo, setFeeInfo] = useState<FeeInfo | null>(null);
 
-  // Prevent wallet refreshes (polling / focus reload) from resetting user selections.
   const selectedFromCodeRef = useRef<string | null>(null);
   const selectedToCodeRef = useRef<string | null>(null);
 
-  // Modal states
   const [showFromPicker, setShowFromPicker] = useState(false);
   const [showToPicker, setShowToPicker] = useState(false);
 
-  // ✅ Search states for custom pickers
   const [fromSearch, setFromSearch] = useState("");
   const [toSearch, setToSearch] = useState("");
+
+  // Pending settlements for optimistic balance display
+  const { hasPendingForCurrency, getOptimisticBalance } = usePendingSettlements();
+
+  // ✅ IMPORTANT: Only apply optimistic balances when the wallet is pending AND we haven't refreshed from API after convert
+  // Here we simply apply optimistic when pending exists, BUT since HomeScreen now disables optimistic once confirmed,
+  // ConvertScreen won't cause doubling anymore because we normalize balances and clear pending on success when settled.
+  const getDisplayBalance = useCallback(
+    (wallet: WalletWithCountry | null) => {
+      if (!wallet) return 0;
+      return getOptimisticBalance(toNumberSafe(wallet.balance), wallet.currencyCode);
+    },
+    [getOptimisticBalance]
+  );
+
+  const fromDisplayBalance = getDisplayBalance(fromWallet);
+  const toDisplayBalance = getDisplayBalance(toWallet);
+
+  const fromHasPending = hasPendingForCurrency(fromWallet?.currencyCode ?? "");
 
   const handleSelectFrom = useCallback(
     (w: Wallet) => {
       const next = w as WalletWithCountry;
-      selectedFromCodeRef.current = next.currencyCode;
-      setFromWallet(next);
+      selectedFromCodeRef.current = normCcy(next.currencyCode);
+      setFromWallet({ ...next, currencyCode: normCcy(next.currencyCode), balance: toNumberSafe((next as any).balance) });
 
-      // If user picks same currency as "to", auto-swap
-      if (toWallet && toWallet.currencyCode === next.currencyCode) {
-        selectedToCodeRef.current = fromWallet?.currencyCode ?? null;
+      if (toWallet && normCcy(toWallet.currencyCode) === normCcy(next.currencyCode)) {
+        selectedToCodeRef.current = fromWallet ? normCcy(fromWallet.currencyCode) : null;
         setToWallet(fromWallet);
       }
     },
@@ -132,33 +176,16 @@ export default function ConvertScreen() {
   const handleSelectTo = useCallback(
     (w: Wallet) => {
       const next = w as WalletWithCountry;
-      selectedToCodeRef.current = next.currencyCode;
-      setToWallet(next);
+      selectedToCodeRef.current = normCcy(next.currencyCode);
+      setToWallet({ ...next, currencyCode: normCcy(next.currencyCode), balance: toNumberSafe((next as any).balance) });
 
-      // If user picks same currency as "from", auto-swap
-      if (fromWallet && fromWallet.currencyCode === next.currencyCode) {
-        selectedFromCodeRef.current = toWallet?.currencyCode ?? null;
+      if (fromWallet && normCcy(fromWallet.currencyCode) === normCcy(next.currencyCode)) {
+        selectedFromCodeRef.current = toWallet ? normCcy(toWallet.currencyCode) : null;
         setFromWallet(toWallet);
       }
     },
     [fromWallet, toWallet]
   );
-
-  // Pending settlements for optimistic balance display
-  const { hasPendingForCurrency, getOptimisticBalance } = usePendingSettlements();
-
-  const getDisplayBalance = useCallback(
-    (wallet: WalletWithCountry | null) => {
-      if (!wallet) return 0;
-      return getOptimisticBalance(wallet.balance, wallet.currencyCode);
-    },
-    [getOptimisticBalance]
-  );
-
-  const fromDisplayBalance = getDisplayBalance(fromWallet);
-  const toDisplayBalance = getDisplayBalance(toWallet);
-
-  const fromHasPending = hasPendingForCurrency(fromWallet?.currencyCode ?? "");
 
   useEffect(() => {
     AsyncStorage.getItem("user_phone").then((phone) => {
@@ -185,29 +212,42 @@ export default function ConvertScreen() {
 
   const loadWallets = async () => {
     try {
-      // Load cached balances first
-      const cachedRaw = await AsyncStorage.getItem("cached_accounts_v1");
-      const cachedAccounts: { currencyCode: string; balance: number }[] = cachedRaw ? JSON.parse(cachedRaw) : [];
+      // ✅ USER-SCOPED cached accounts (same as HomeScreen)
+      const cacheKey = userScopedKey("cached_accounts_v1", userPhone);
+      const cachedRaw = await AsyncStorage.getItem(cacheKey);
+      const cachedAccounts: { currencyCode: string; balance: any }[] = cachedRaw ? JSON.parse(cachedRaw) : [];
       const cachedBalanceMap: Record<string, number> = {};
       cachedAccounts.forEach((a) => {
-        if (typeof a.balance === "number") cachedBalanceMap[a.currencyCode?.toUpperCase()] = a.balance;
+        const ccy = normCcy(a.currencyCode);
+        const bal = toNumberSafe(a.balance);
+        if (ccy) cachedBalanceMap[ccy] = bal;
       });
 
       const response = await getUserWallets(userPhone);
 
       if (response.success) {
-        const mergedWallets: WalletWithCountry[] = response.wallets.map((w: WalletWithCountry) => {
-          const ccy = w.currencyCode?.toUpperCase();
+        // ✅ normalize API balances
+        const apiWallets = normalizeWalletBalances(response.wallets || []);
+
+        // ✅ merge cache ONLY if API balance is truly missing/zero AND cache is newer
+        // We do NOT override valid API values (including string numbers).
+        const mergedWallets: WalletWithCountry[] = apiWallets.map((w) => {
+          const ccy = normCcy(w.currencyCode);
           const cachedBal = cachedBalanceMap[ccy];
 
-          if (cachedBal !== undefined && (w.balance === null || w.balance === undefined)) {
+          const apiBal = toNumberSafe((w as any).balance);
+
+          // only use cache if api balance is missing (0 AND original was null/undefined)
+          const rawWasMissing = (w as any).balance === null || (w as any).balance === undefined;
+
+          if (rawWasMissing && typeof cachedBal === "number") {
             return { ...w, balance: cachedBal };
           }
-          if (typeof cachedBal === "number" && typeof w.balance !== "number") {
-            return { ...w, balance: cachedBal };
-          }
-          return w;
+          return { ...w, balance: apiBal };
         });
+
+        // ✅ write back normalized cache so Home + Convert use the same stable numeric balances
+        await AsyncStorage.setItem(cacheKey, JSON.stringify(mergedWallets));
 
         const activeWallets = mergedWallets.filter((w) => w.status === "active");
         setWallets(mergedWallets);
@@ -224,17 +264,17 @@ export default function ConvertScreen() {
 
         const nextFrom =
           desiredFromCode
-            ? activeWallets.find((w) => w.currencyCode?.toUpperCase() === desiredFromCode) || null
+            ? activeWallets.find((w) => normCcy(w.currencyCode) === desiredFromCode) || null
             : activeWallets[0] || null;
 
         let nextTo: WalletWithCountry | null = null;
-        if (desiredToCode && desiredToCode !== nextFrom?.currencyCode?.toUpperCase()) {
-          nextTo = activeWallets.find((w) => w.currencyCode?.toUpperCase() === desiredToCode) || null;
+        if (desiredToCode && desiredToCode !== normCcy(nextFrom?.currencyCode)) {
+          nextTo = activeWallets.find((w) => normCcy(w.currencyCode) === desiredToCode) || null;
         }
         if (!nextTo) nextTo = activeWallets.find((w) => w.currencyCode !== nextFrom?.currencyCode) || null;
 
-        if (nextFrom?.currencyCode) selectedFromCodeRef.current = nextFrom.currencyCode;
-        if (nextTo?.currencyCode) selectedToCodeRef.current = nextTo.currencyCode;
+        if (nextFrom?.currencyCode) selectedFromCodeRef.current = normCcy(nextFrom.currencyCode);
+        if (nextTo?.currencyCode) selectedToCodeRef.current = normCcy(nextTo.currencyCode);
 
         setFromWallet(nextFrom);
         setToWallet(nextTo);
@@ -267,17 +307,17 @@ export default function ConvertScreen() {
       );
 
       if (response.success) {
-        setToAmount(response.quote.buyAmount.toFixed(2));
-        setRate(response.quote.rate);
+        setToAmount(Number(response.quote.buyAmount || 0).toFixed(2));
+        setRate(Number(response.quote.rate || 0));
 
         if (response.quote.feeAmount !== undefined) {
           setFeeInfo({
-            feeAmount: response.quote.feeAmount,
+            feeAmount: Number(response.quote.feeAmount || 0),
             feeCurrency: response.quote.feeCurrency || fromWallet.currencyCode,
             feeType: response.quote.feeConfig?.fee_type,
             feePercentage: response.quote.feeConfig?.percentage_fee,
             flatFee: response.quote.feeConfig?.flat_fee,
-            totalDebit: response.quote.totalDebit,
+            totalDebit: Number(response.quote.totalDebit || 0),
           });
         } else {
           setFeeInfo(null);
@@ -354,31 +394,45 @@ export default function ConvertScreen() {
 
       if (response.success) {
         const conversionData = response.conversion;
-        const sellAmount = conversionData?.sellAmount || parseFloat(fromAmount);
-        const buyAmount = conversionData?.buyAmount || parseFloat(toAmount);
-        const sellCurrency = conversionData?.sellCurrency || fromWallet.currencyCode;
-        const buyCurrency = conversionData?.buyCurrency || toWallet.currencyCode;
 
+        const sellAmount = toNumberSafe(conversionData?.sellAmount ?? fromAmount);
+        const buyAmount = toNumberSafe(conversionData?.buyAmount ?? toAmount);
+
+        const sellCurrency = normCcy(conversionData?.sellCurrency || fromWallet.currencyCode);
+        const buyCurrency = normCcy(conversionData?.buyCurrency || toWallet.currencyCode);
+
+        // ✅ If backend says balance update pending, record pending settlement
         if (response.balanceUpdatePending) {
           const KNOWN_EXOTIC_CURRENCIES = ["NGN", "GHS", "RWF", "UGX", "TZS", "ZMW", "XOF", "XAF"];
-          const norm = (c: string) => String(c || "").toUpperCase().trim();
-          const isExotic = (c: string) => KNOWN_EXOTIC_CURRENCIES.includes(norm(c));
+          const isExotic = (c: string) => KNOWN_EXOTIC_CURRENCIES.includes(normCcy(c));
 
           const pendingSellAmount = isExotic(sellCurrency) ? 0 : sellAmount;
           const pendingBuyAmount = isExotic(buyCurrency) ? 0 : buyAmount;
 
           if (pendingSellAmount !== 0 || pendingBuyAmount !== 0) {
             await addPendingSettlement({
-              sellCurrency: norm(sellCurrency),
-              buyCurrency: norm(buyCurrency),
+              sellCurrency,
+              buyCurrency,
               sellAmount: pendingSellAmount,
               buyAmount: pendingBuyAmount,
               conversionId: conversionData?.id,
-              sellBalanceBefore: fromWallet.balance,
-              buyBalanceBefore: toWallet.balance,
+              sellBalanceBefore: toNumberSafe(fromWallet.balance),
+              buyBalanceBefore: toNumberSafe(toWallet.balance),
             });
           }
+        } else {
+          // ✅ if backend already settled, ensure no old pending remains
+          clearPendingForCurrency(sellCurrency);
+          clearPendingForCurrency(buyCurrency);
         }
+
+        // ✅ CRITICAL: wipe caches so HomeScreen never shows stale or “added” cached values
+        try {
+          await clearAllBalanceCaches();
+        } catch {}
+
+        // ✅ force a reload of wallets now (so this screen also stays correct)
+        await loadWallets();
 
         router.push({
           pathname: "/result",
@@ -386,7 +440,7 @@ export default function ConvertScreen() {
             type: "success",
             title: "Conversion Complete",
             message: `You converted ${sellAmount.toFixed(2)} ${sellCurrency} to ${buyAmount.toFixed(2)} ${buyCurrency}`,
-            subtitle: `Rate: 1 ${sellCurrency} = ${conversionData?.rate?.toFixed(4) || rate?.toFixed(4)} ${buyCurrency}`,
+            subtitle: `Rate: 1 ${sellCurrency} = ${toNumberSafe(conversionData?.rate ?? rate).toFixed(4)} ${buyCurrency}`,
             primaryText: "Done",
             primaryRoute: "/(tabs)",
             secondaryText: "View wallet",
@@ -402,7 +456,7 @@ export default function ConvertScreen() {
             message: response.message || "Something went wrong with the conversion.",
             primaryText: "Try again",
             primaryRoute: "back",
-            secondaryText: "Contact support",
+            secondaryText: "",
             secondaryRoute: "/help",
           },
         });
@@ -417,7 +471,7 @@ export default function ConvertScreen() {
           message: "Network error. Please check your connection and try again.",
           primaryText: "Try again",
           primaryRoute: "back",
-          secondaryText: "Contact support",
+          secondaryText: "",
           secondaryRoute: "/help",
         },
       });
@@ -434,7 +488,6 @@ export default function ConvertScreen() {
     setToAmount("");
     setRate(null);
 
-    // keep refs consistent so polling won’t “snap back”
     selectedFromCodeRef.current = temp?.currencyCode ?? null;
     selectedToCodeRef.current = toWallet?.currencyCode ?? null;
   };
@@ -472,15 +525,7 @@ export default function ConvertScreen() {
             setFromSearch("");
           }}
         />
-        <View
-          style={{
-            backgroundColor: "#fff",
-            borderTopLeftRadius: 24,
-            borderTopRightRadius: 24,
-            maxHeight: "70%",
-            paddingBottom: 40,
-          }}
-        >
+        <View style={{ backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "70%", paddingBottom: 40 }}>
           <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
               <Pressable
@@ -518,8 +563,7 @@ export default function ConvertScreen() {
             data={filteredFromWallets}
             keyExtractor={(item) => String((item as any)?.id ?? item.currencyCode)}
             renderItem={({ item }) => {
-              const selected =
-                (fromWallet?.currencyCode || "").toUpperCase() === (item.currencyCode || "").toUpperCase();
+              const selected = normCcy(fromWallet?.currencyCode) === normCcy(item.currencyCode);
               return (
                 <Pressable
                   style={{
@@ -539,27 +583,18 @@ export default function ConvertScreen() {
                     setFromSearch("");
                   }}
                 >
-                  <CountryFlag
-                    currencyCode={item.currencyCode}
-                    fallbackEmoji={(item as any)?.flag}
-                    size="lg"
-                    style={{ marginRight: 12 }}
-                  />
+                  <CountryFlag currencyCode={item.currencyCode} fallbackEmoji={(item as any)?.flag} size="lg" style={{ marginRight: 12 }} />
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 16, fontWeight: "600", color: "#1F2937" }}>{item.currencyCode}</Text>
                     <Text style={{ fontSize: 13, color: "#6B7280" }}>
-                      Balance: {getOptimisticBalance(item.balance, item.currencyCode).toFixed(2)} {item.currencyCode}
+                      Balance: {getOptimisticBalance(toNumberSafe(item.balance), item.currencyCode).toFixed(2)} {item.currencyCode}
                     </Text>
                   </View>
                   {selected && <Text style={{ fontSize: 18, color: "#16A34A", fontWeight: "700" }}>✓</Text>}
                 </Pressable>
               );
             }}
-            ListEmptyComponent={
-              <Text style={{ textAlign: "center", color: "#9CA3AF", marginTop: 40, fontSize: 16 }}>
-                No wallets found
-              </Text>
-            }
+            ListEmptyComponent={<Text style={{ textAlign: "center", color: "#9CA3AF", marginTop: 40, fontSize: 16 }}>No wallets found</Text>}
           />
         </View>
       </View>
@@ -576,15 +611,7 @@ export default function ConvertScreen() {
             setToSearch("");
           }}
         />
-        <View
-          style={{
-            backgroundColor: "#fff",
-            borderTopLeftRadius: 24,
-            borderTopRightRadius: 24,
-            maxHeight: "70%",
-            paddingBottom: 40,
-          }}
-        >
+        <View style={{ backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "70%", paddingBottom: 40 }}>
           <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
               <Pressable
@@ -622,8 +649,7 @@ export default function ConvertScreen() {
             data={filteredToWallets}
             keyExtractor={(item) => String((item as any)?.id ?? item.currencyCode)}
             renderItem={({ item }) => {
-              const selected =
-                (toWallet?.currencyCode || "").toUpperCase() === (item.currencyCode || "").toUpperCase();
+              const selected = normCcy(toWallet?.currencyCode) === normCcy(item.currencyCode);
               return (
                 <Pressable
                   style={{
@@ -643,27 +669,18 @@ export default function ConvertScreen() {
                     setToSearch("");
                   }}
                 >
-                  <CountryFlag
-                    currencyCode={item.currencyCode}
-                    fallbackEmoji={(item as any)?.flag}
-                    size="lg"
-                    style={{ marginRight: 12 }}
-                  />
+                  <CountryFlag currencyCode={item.currencyCode} fallbackEmoji={(item as any)?.flag} size="lg" style={{ marginRight: 12 }} />
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 16, fontWeight: "600", color: "#1F2937" }}>{item.currencyCode}</Text>
                     <Text style={{ fontSize: 13, color: "#6B7280" }}>
-                      Balance: {getOptimisticBalance(item.balance, item.currencyCode).toFixed(2)} {item.currencyCode}
+                      Balance: {getOptimisticBalance(toNumberSafe(item.balance), item.currencyCode).toFixed(2)} {item.currencyCode}
                     </Text>
                   </View>
                   {selected && <Text style={{ fontSize: 18, color: "#16A34A", fontWeight: "700" }}>✓</Text>}
                 </Pressable>
               );
             }}
-            ListEmptyComponent={
-              <Text style={{ textAlign: "center", color: "#9CA3AF", marginTop: 40, fontSize: 16 }}>
-                No wallets found
-              </Text>
-            }
+            ListEmptyComponent={<Text style={{ textAlign: "center", color: "#9CA3AF", marginTop: 40, fontSize: 16 }}>No wallets found</Text>}
           />
         </View>
       </View>
@@ -687,16 +704,14 @@ export default function ConvertScreen() {
         <View style={{ flex: 1, padding: 20 }}>
           <View style={styles.headerRow}>
             <View style={{ flex: 1 }}>
-            <Pressable onPress={() => router.back()} style={styles.backBtn}>
-              <Text style={styles.backIcon}>←</Text>
-            </Pressable>
+              <Pressable onPress={() => router.back()} style={styles.backBtn}>
+                <Text style={styles.backIcon}>←</Text>
+              </Pressable>
               <Text style={styles.title}>Convert Currency</Text>
-              <Text style={styles.subtitle}>
-                You need at least 2 currency wallets to convert between currencies.
-              </Text>
-            <Pressable style={styles.primaryBtn} onPress={() => router.push("/addaccount")}>
-              <Text style={{ color: "#fff", fontWeight: "bold", fontSize: 16 }}>+ Add Currency</Text>
-            </Pressable>
+              <Text style={styles.subtitle}>You need at least 2 currency wallets to convert between currencies.</Text>
+              <Pressable style={styles.primaryBtn} onPress={() => router.push("/addaccount")}>
+                <Text style={{ color: "#fff", fontWeight: "bold", fontSize: 16 }}>+ Add Currency</Text>
+              </Pressable>
             </View>
           </View>
 
@@ -719,28 +734,16 @@ export default function ConvertScreen() {
                     opacity: wallet.status === "active" ? 1 : 0.6,
                   }}
                 >
-                  <CountryFlag
-                    currencyCode={wallet.currencyCode}
-                    fallbackEmoji={(wallet as any).flag}
-                    size="lg"
-                    style={{ marginRight: 12 }}
-                  />
+                  <CountryFlag currencyCode={wallet.currencyCode} fallbackEmoji={(wallet as any).flag} size="lg" style={{ marginRight: 12 }} />
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 16, fontWeight: "600", color: "#333" }}>{(wallet as any).currencyName}</Text>
                     <Text style={{ fontSize: 14, color: "#666" }}>
-                      {wallet.formattedBalance} {wallet.currencyCode}
+                      {toNumberSafe(wallet.balance).toFixed(2)} {wallet.currencyCode}
                     </Text>
                   </View>
 
                   {wallet.status !== "active" && (
-                    <View
-                      style={{
-                        backgroundColor: "#9E9E9E",
-                        paddingHorizontal: 8,
-                        paddingVertical: 4,
-                        borderRadius: 4,
-                      }}
-                    >
+                    <View style={{ backgroundColor: "#9E9E9E", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
                       <Text style={{ color: "#fff", fontSize: 10, fontWeight: "600" }}>INACTIVE</Text>
                     </View>
                   )}
@@ -749,13 +752,6 @@ export default function ConvertScreen() {
             </View>
           )}
 
-          {/* {wallets.length === 0 && (
-            <View style={{ backgroundColor: "#FFF3E0", borderRadius: 12, padding: 16, marginBottom: 24 }}>
-              <Text style={{ color: "#E65100", fontSize: 14 }}>
-                You don't have any currency wallets yet. Add your first currency to get started.
-              </Text>
-            </View>
-          )} */}
           <Text style={{ fontSize: 12, color: "#999", textAlign: "center", marginTop: 16 }}>
             Add {wallets.length === 0 ? "at least 2 currencies" : "one more currency"} to start converting
           </Text>
@@ -808,7 +804,6 @@ export default function ConvertScreen() {
               <CurrencyPill
                 flag={fromWallet?.flag || "🏳️"}
                 code={fromWallet?.currencyCode || "Select"}
-                // ✅ normalized so pill and any internal logic remains consistent
                 countryCode={getWalletCountryCode(fromWallet)}
                 onPress={() => setShowFromPicker(true)}
               />
@@ -818,36 +813,14 @@ export default function ConvertScreen() {
               Balance: {fromDisplayBalance.toFixed(2)} {fromWallet?.currencyCode || ""}
             </Text>
 
-            {balanceExceeded && (
-              <Text style={{ color: "#EF4444", fontSize: 12, marginTop: 4 }}>⚠️ Insufficient balance</Text>
-            )}
-            {fromHasPending && (
-              <Text style={{ color: "#F59E0B", fontSize: 12, marginTop: 4 }}>
-                ⏳ Settlement pending - conversion blocked
-              </Text>
-            )}
+            {balanceExceeded && <Text style={{ color: "#EF4444", fontSize: 12, marginTop: 4 }}>⚠️ Insufficient balance</Text>}
+            {fromHasPending && <Text style={{ color: "#F59E0B", fontSize: 12, marginTop: 4 }}>⏳ Settlement pending - conversion blocked</Text>}
 
             <View style={{ flexDirection: "row", marginTop: 12 }}>
-              <QuickAmountButton
-                label="25%"
-                onPress={() => handleQuickAmount(0.25)}
-                disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending}
-              />
-              <QuickAmountButton
-                label="50%"
-                onPress={() => handleQuickAmount(0.5)}
-                disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending}
-              />
-              <QuickAmountButton
-                label="75%"
-                onPress={() => handleQuickAmount(0.75)}
-                disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending}
-              />
-              <QuickAmountButton
-                label="MAX"
-                onPress={() => handleQuickAmount(1.0)}
-                disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending}
-              />
+              <QuickAmountButton label="25%" onPress={() => handleQuickAmount(0.25)} disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending} />
+              <QuickAmountButton label="50%" onPress={() => handleQuickAmount(0.5)} disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending} />
+              <QuickAmountButton label="75%" onPress={() => handleQuickAmount(0.75)} disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending} />
+              <QuickAmountButton label="MAX" onPress={() => handleQuickAmount(1.0)} disabled={!fromWallet || fromDisplayBalance <= 0 || fromHasPending} />
             </View>
           </View>
 
@@ -858,9 +831,7 @@ export default function ConvertScreen() {
             </Pressable>
 
             {rate ? (
-              <Text style={styles.muted}>
-                1 {fromWallet?.currencyCode} = {rate.toFixed(4)} {toWallet?.currencyCode}
-              </Text>
+              <Text style={styles.muted}>1 {fromWallet?.currencyCode} = {rate.toFixed(4)} {toWallet?.currencyCode}</Text>
             ) : quoteLoading ? (
               <Text style={styles.muted}>Fetching rate...</Text>
             ) : (
@@ -889,9 +860,7 @@ export default function ConvertScreen() {
               />
             </View>
 
-            <Text style={styles.convertBalance}>
-              Balance: {toDisplayBalance.toFixed(2)} {toWallet?.currencyCode || ""}
-            </Text>
+            <Text style={styles.convertBalance}>Balance: {toDisplayBalance.toFixed(2)} {toWallet?.currencyCode || ""}</Text>
           </View>
 
           {/* Fee Breakdown */}
@@ -907,21 +876,10 @@ export default function ConvertScreen() {
           )}
 
           {/* Convert Button */}
-          <Pressable
-            style={!canConvert ? styles.disabledBigBtn : styles.primaryBtn}
-            onPress={handleConvert}
-            disabled={!canConvert || converting}
-          >
-            {converting ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={{ color: canConvert ? "#fff" : "#B3B3B3", fontWeight: "900", fontSize: 18 }}>
-                Convert
-              </Text>
-            )}
+          <Pressable style={!canConvert ? styles.disabledBigBtn : styles.primaryBtn} onPress={handleConvert} disabled={!canConvert || converting}>
+            {converting ? <ActivityIndicator color="#fff" /> : <Text style={{ color: canConvert ? "#fff" : "#B3B3B3", fontWeight: "900", fontSize: 18 }}>Convert</Text>}
           </Pressable>
 
-          {/* ✅ FIXED: Rounded-flag pickers (replaces CurrencyPickerModal) */}
           {FromPickerModal}
           {ToPickerModal}
         </KeyboardAvoidingView>

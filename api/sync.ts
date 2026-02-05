@@ -95,6 +95,28 @@ export interface TotalBalanceResponse {
   message?: string;
 }
 
+export interface SavedRecipientFromDB {
+  id: string;
+  accountName: string;
+  accountNumber: string;
+  bankCode: string;
+  bankName: string;
+  currency: string;
+  countryCode: string;
+  isInterac: boolean;
+  createdAt: number;
+  updatedAt: number | null;
+}
+export interface SaveRecipientRequest {
+  phone: string;
+  accountName: string;
+  accountNumber: string;
+  bankCode: string;
+  bankName: string;
+  currency: string;
+  countryCode: string;
+  isInterac?: boolean;
+}
 // ============ FETCH HELPER ============
 
 const DEFAULT_TIMEOUT_MS = 15000;
@@ -521,6 +543,36 @@ export async function getRecentRecipientsFromDB(
       success: false,
       recipients: [],
       total: 0,
+      message: error.message || 'Network error',
+    };
+  }
+}
+
+export async function saveRecipientToDB(
+  request: SaveRecipientRequest
+): Promise<{ success: boolean; message?: string; recipient?: SavedRecipientFromDB }> {
+  try {
+    const response = await fetchWithTimeout(
+      `${API_BASE_URL}/users/recipients/saved`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      },
+      10000
+    );
+
+    const data = await response.json();
+    
+    return {
+      success: data.success || false,
+      message: data.message,
+      recipient: data.recipient,
+    };
+  } catch (error: any) {
+    console.error('[SyncAPI] saveRecipientToDB error:', error.message);
+    return {
+      success: false,
       message: error.message || 'Network error',
     };
   }

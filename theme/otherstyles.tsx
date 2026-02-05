@@ -39,6 +39,8 @@ export const otherstyles = StyleSheet.create({
     fontSize: 13,
     color: "#6B7280",
     textAlign: "center",
+    alignItems:'center',
+    justifyContent:'center',
     lineHeight: 18,
     paddingHorizontal: 10,
   },
@@ -906,7 +908,7 @@ netErrBackdrop: {
   netErrIcon: { fontSize: 20 },
 
   netErrTitle: { fontSize: 16, fontWeight: "900", color: "#111827", marginTop: 4 },
-  netErrMessage: { marginTop: 6, color: "#6B7280", fontWeight: "600", lineHeight: 20 },
+  netErrMessage: { marginTop: 6, color: "#6B7280", fontWeight: "600", lineHeight: 20, textAlign:'center' },
 
   netErrBtn: { marginTop: 14, borderRadius: 12 },
   netErrBtnRow: { flexDirection: "row", alignItems: "center", justifyContent: "center" },

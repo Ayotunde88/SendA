@@ -650,6 +650,7 @@ export const createCurrencyAccount = async (
 };
 
 // Cache for last known good balances to prevent flicker during transient failures
+let accountsCache: { data: any[]; phone: string; timestamp: number } | null = null;
 const balanceCache: Record<string, { balance: number; timestamp: number }> = {};
 const BALANCE_CACHE_MAX_AGE_MS = 60000; // 1 minute
 
@@ -701,7 +702,15 @@ export function mergeAccountsWithCache(apiAccounts: any[], cachedAccounts: any[]
   return merged;
 }
 
-
+export const clearAllBalanceCaches = () => {
+  console.log('[config.ts] Clearing all in-memory balance caches');
+  // Clear balance cache
+  Object.keys(balanceCache).forEach(key => delete balanceCache[key]);
+  // Clear accounts cache
+  accountsCache = null;
+  // Clear total balance cache
+  totalBalanceCache = null;
+};
 
 export const getUserAccounts = async (
   phone: string,
@@ -793,6 +802,12 @@ const TOTAL_BALANCE_CACHE_MAX_AGE_MS = 30000; // 30 seconds
 const __quoteCache = new Map<string, { ts: number; data: any }>();
 const __quoteInflight = new Map<string, Promise<any>>();
 
+let totalBalanceCache: { data: any; timestamp: number; phone: string } | null = null;
+
+// Clear cache when user changes (call on logout or user switch)
+export const clearTotalBalanceCache = () => {
+  totalBalanceCache = null;
+};
 export const getTotalBalance = async (phone: string): Promise<{
   cached: any;
   success: boolean;
@@ -989,34 +1004,110 @@ export const getConversionQuote = async (
 
 
 // Execute conversion
+// Execute conversion with timeout and 202 polling support
 export const executeConversion = async (
   phone: string,
   sellCurrency: string,
   buyCurrency: string,
   amount: number,
   fixedSide: "sell" | "buy" = "sell"
-): Promise<any> => {
+): Promise<{
+  balanceUpdatePending: any;
+  success: boolean;
+  message?: string;
+  conversion?: any;
+  updatedBalances?: Record<string, number>;
+  status?: string;
+}> => {
   try {
-    const data = await strictAPICall<any>(`${API_BASE_URL}/currencycloud/user/convert`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        phone,
-        sell_currency: sellCurrency,
-        buy_currency: buyCurrency,
-        amount,
-        fixed_side: fixedSide,
-      }),
-      timeoutMs: 20000,
-      context: "Execute conversion",
-      validateSuccess: false,
-    });
-
+    // Use 55 second timeout - just under typical mobile 60s limit
+    const CONVERSION_TIMEOUT_MS = 55000;
+    
+    const response = await fetchWithTimeout(
+      `${API_BASE_URL}/currencycloud/user/convert`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone,
+          sell_currency: sellCurrency,
+          buy_currency: buyCurrency,
+          amount,
+          fixed_side: fixedSide,
+        }),
+      },
+      CONVERSION_TIMEOUT_MS
+    );
+    
+    const data = await response.json();
+    
+    // Handle 202 "Processing" response - poll for completion
+    if (response.status === 202 && data.status === 'processing' && data.polling?.shouldPoll) {
+      console.log('[executeConversion] Received 202 Processing, starting poll...');
+      
+      const pollingConfig = data.polling;
+      const pendingId = data.pendingId;
+      const maxAttempts = pollingConfig.maxAttempts || 40;
+      const intervalMs = pollingConfig.intervalMs || 3000;
+      
+      // Poll for completion
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, intervalMs));
+        
+        try {
+          const statusResponse = await fetchWithTimeout(
+            `${API_BASE_URL}/currencycloud/user/convert/status/${pendingId}`,
+            { method: 'GET' },
+            10000
+          );
+          
+          const statusData = await statusResponse.json();
+          console.log(`[executeConversion] Poll ${attempt + 1}/${maxAttempts}:`, statusData.status);
+          
+          if (statusData.status === 'completed') {
+            return {
+              success: true,
+              message: statusData.message || `Converted ${sellCurrency} to ${buyCurrency}`,
+              conversion: statusData.conversion,
+              updatedBalances: statusData.updatedBalances,
+            };
+          } else if (statusData.status === 'failed') {
+            return {
+              success: false,
+              message: statusData.message || 'Conversion failed',
+            };
+          }
+        } catch (pollError) {
+          console.log(`[executeConversion] Poll ${attempt + 1} failed:`, pollError);
+        }
+      }
+      
+      // Polling exhausted
+      return {
+        success: true,
+        status: 'processing',
+        message: 'Conversion is being processed. Please check your balance in a moment.',
+        conversion: data.conversion,
+      };
+    }
+    
     return data;
-  } catch (err) {
-    return mapConfigError(err, "Conversion failed");
+    
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      return {
+        success: false,
+        message: 'The conversion is taking longer than expected. Please check your balance - it may have completed.',
+      };
+    }
+    
+    return {
+      success: false,
+      message: error.message || 'Network error during conversion',
+    };
   }
 };
+
 
 
 /**
@@ -1232,3 +1323,4 @@ export async function calculateSendFee(params: {
     return { success: false, message: 'Failed to calculate fee' };
   }
 }
+

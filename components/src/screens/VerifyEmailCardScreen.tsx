@@ -47,7 +47,7 @@ export default function VerifyEmailCardScreen({ onPress, email }: Props) {
       /> */}
       <Ionicons
         name="mail"
-        size={22}
+        size={40}
         color={COLORS.primary}
       />
     </View>

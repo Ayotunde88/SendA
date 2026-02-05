@@ -2,8 +2,16 @@
  * HomeScreen.tsx
  * - Refreshes like “reloaded” whenever user comes back (back button) using useFocusEffect
  * - Uses USER-SCOPED cache to prevent flicker-to-zero
- * - If balances cannot be fetched due to slow/no network (and no usable cache), redirects to /networkerrorstate
- * - NO LinearGradient (plain fintech cards)
+ * - Shows wallet CARDS immediately (from cache/last state), but keeps BALANCE skeleton until a trusted API snapshot arrives
+ * - If API returns bogus 0.00 balances due to network/server flakiness, we DO NOT overwrite UI/cache with zeros
+ *
+ * ✅ FIXES (this version):
+ *  1) Normalize ALL balances to numbers (API + cache)
+ *  2) Save ONLY numeric balances into cache
+ *  3) Keep wallet cards visible; only amount area skeletons while waiting for a trusted API snapshot
+ *  4) Detect “bad snapshots” (all-zero API balances) and keep skeleton until a good snapshot arrives
+ *  5) Never overwrite cached balances with bogus zeros
+ *  6) Apply optimistic pending balances ONLY before API-confirmed snapshot; stop applying after confirmation
  */
 
 import {
@@ -42,7 +50,7 @@ import { getLocalBalance } from "../../../api/flutterwave";
 import CountryFlag from "../../../components/CountryFlag";
 import { PendingBadge } from "../../../components/PendingBadge";
 import VerifyEmailCard from "../../../components/src/screens/VerifyEmailCardScreen";
-import { usePendingSettlements } from "../../../hooks/usePendingSettlements";
+import { usePendingSettlements, clearPendingForCurrency } from "../../../hooks/usePendingSettlements";
 import { COLORS } from "../../../theme/colors";
 import { styles } from "../../../theme/styles";
 import { userScopedKey } from "../../../utils/cacheKeys";
@@ -96,8 +104,6 @@ type DisplayRate = {
 
 type HistoricalPoint = { date: string; timestamp: number; rate: number };
 type RangeKey = "1D" | "5D" | "1M" | "1Y" | "5Y" | "MAX";
-
-// RecentRecipient type now comes from API
 type RecentRecipient = RecentRecipientFromDB;
 
 /** ---------------- Constants ---------------- **/
@@ -112,6 +118,26 @@ function normalizeCurrency(code: any) {
 }
 function isValidNumber(n: any) {
   return typeof n === "number" && Number.isFinite(n);
+}
+function toNumberSafe(v: any): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string") {
+    const n = parseFloat(v.replace(/,/g, "").trim());
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+function normalizeAccountBalances(list: any[]): UserAccount[] {
+  if (!Array.isArray(list)) return [];
+  return list.map((a: any) => {
+    const bal = toNumberSafe(a?.balance);
+    return {
+      ...a,
+      currencyCode: normalizeCurrency(a?.currencyCode),
+      balance: bal === null ? null : bal,
+    };
+  });
 }
 function getInitials(name: string) {
   return (name || "U")
@@ -129,7 +155,7 @@ async function loadCachedAccounts(phone: string): Promise<UserAccount[]> {
     const raw = await AsyncStorage.getItem(userScopedKey(CACHED_ACCOUNTS_KEY_BASE, phone));
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) return normalizeAccountBalances(parsed);
     }
   } catch {}
   return [];
@@ -137,7 +163,8 @@ async function loadCachedAccounts(phone: string): Promise<UserAccount[]> {
 async function saveCachedAccounts(accounts: UserAccount[], phone: string): Promise<void> {
   try {
     if (!phone) return;
-    await AsyncStorage.setItem(userScopedKey(CACHED_ACCOUNTS_KEY_BASE, phone), JSON.stringify(accounts || []));
+    const normalized = normalizeAccountBalances(accounts || []);
+    await AsyncStorage.setItem(userScopedKey(CACHED_ACCOUNTS_KEY_BASE, phone), JSON.stringify(normalized));
   } catch {}
 }
 async function loadCachedTotalBalance(
@@ -148,7 +175,14 @@ async function loadCachedTotalBalance(
     const raw = await AsyncStorage.getItem(userScopedKey(CACHED_TOTAL_BALANCE_KEY_BASE, phone));
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (typeof parsed?.total === "number") return parsed;
+      const total = toNumberSafe(parsed?.total);
+      if (typeof total === "number") {
+        return {
+          total,
+          currency: String(parsed?.currency || ""),
+          symbol: String(parsed?.symbol || ""),
+        };
+      }
     }
   } catch {}
   return null;
@@ -158,7 +192,7 @@ async function saveCachedTotalBalance(total: number, currency: string, symbol: s
     if (!phone) return;
     await AsyncStorage.setItem(
       userScopedKey(CACHED_TOTAL_BALANCE_KEY_BASE, phone),
-      JSON.stringify({ total, currency, symbol })
+      JSON.stringify({ total: Number(total), currency: currency || "", symbol: symbol || "" })
     );
   } catch {}
 }
@@ -169,8 +203,18 @@ function SkeletonPulse({ style }: { style?: any }) {
   useEffect(() => {
     const pulse = Animated.loop(
       Animated.sequence([
-        Animated.timing(animatedValue, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(animatedValue, { toValue: 0, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(animatedValue, {
+          toValue: 1,
+          duration: 800,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(animatedValue, {
+          toValue: 0,
+          duration: 1500,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
       ])
     );
     pulse.start();
@@ -501,6 +545,9 @@ export default function HomeScreen() {
     accountsRef.current = accounts;
   }, [accounts]);
 
+  const cachedAccountsRef = useRef<UserAccount[]>([]);
+  const cachedTotalRef = useRef<{ total: number; currency: string; symbol: string } | null>(null);
+
   const [flagsByCurrency, setFlagsByCurrency] = useState<Record<string, string>>({});
   const [disabledCurrencies, setDisabledCurrencies] = useState<Record<string, true>>({});
   const [displayRates, setDisplayRates] = useState<DisplayRate[]>([]);
@@ -521,11 +568,15 @@ export default function HomeScreen() {
   const [emailVerified, setEmailVerified] = useState(false);
   const [userPhone, setUserPhone] = useState("");
 
-  // network + wallet confirmation
   const [networkOk, setNetworkOk] = useState<boolean>(true);
+
+  // ✅ confirmed means: "we trust the API snapshot"
   const [walletsConfirmed, setWalletsConfirmed] = useState<boolean>(false);
 
-  // Keep amount skeleton visible until we confirm a fresh API balance.
+  // ✅ while true: keep amount skeletons (NOT the cards)
+  const [waitingForValidApi, setWaitingForValidApi] = useState<boolean>(false);
+
+  // Keep amount skeleton visible per currency until we trust that currency from API.
   const [balanceLoadingByCurrency, setBalanceLoadingByCurrency] = useState<Record<string, boolean>>({});
 
   const onSettlementConfirmedRef = useRef<() => void>(() => {});
@@ -541,17 +592,14 @@ export default function HomeScreen() {
     const unsub = NetInfo.addEventListener((state) => {
       const ok = Boolean(state.isConnected && state.isInternetReachable !== false);
       setNetworkOk(ok);
-      if (!ok) setWalletsConfirmed(false);
+      if (!ok) {
+        // We don't redirect automatically; we keep skeletons until valid API returns.
+        setWalletsConfirmed(false);
+        setWaitingForValidApi(true);
+      }
     });
     return () => unsub();
   }, []);
-
-  /** Redirect to network error screen when network is bad (avoid doing this inside render/memo) */
-  useEffect(() => {
-    if (!networkOk) {
-      router.replace("/networkerrorstate");
-    }
-  }, [networkOk, router]);
 
   /** Load phone + email verified once */
   useEffect(() => {
@@ -576,11 +624,14 @@ export default function HomeScreen() {
       hasCacheLoadedRef.current = true;
 
       const cachedAccounts = await loadCachedAccounts(userPhone);
+      cachedAccountsRef.current = cachedAccounts;
+
       if (cachedAccounts.length > 0) {
         setAccounts(cachedAccounts);
-
-        // keep skeleton until API confirms
         setWalletsConfirmed(false);
+
+        // show amount skeleton until API is trusted
+        setWaitingForValidApi(true);
 
         setBalanceLoadingByCurrency(() => {
           const next: Record<string, boolean> = {};
@@ -590,9 +641,14 @@ export default function HomeScreen() {
           }
           return next;
         });
+      } else {
+        // no cache: we are still waiting for API
+        setWaitingForValidApi(true);
       }
 
       const cachedTotal = await loadCachedTotalBalance(userPhone);
+      cachedTotalRef.current = cachedTotal;
+
       if (cachedTotal) {
         setTotalBalance(cachedTotal.total);
         setHomeCurrency(cachedTotal.currency);
@@ -622,13 +678,12 @@ export default function HomeScreen() {
     (balance?: number | null) => {
       if (hideBalance) return "••••••";
       if (!isValidNumber(balance)) return "—";
-      const val = balance as number;
-      return val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return (balance as number).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     },
     [hideBalance]
   );
 
-  /** Mark list wallets loading (use ref so navigation won’t pass empty list) */
+  /** Mark list wallets loading */
   const markAllWalletsLoading = useCallback((list: UserAccount[]) => {
     const base = Array.isArray(list) && list.length > 0 ? list : accountsRef.current;
     setBalanceLoadingByCurrency((prev) => {
@@ -641,18 +696,24 @@ export default function HomeScreen() {
     });
   }, []);
 
-  /** After API confirmed, stop skeleton only for currencies with valid balances */
+  /** After API confirmed, stop skeleton for currencies with valid balances */
   const confirmWalletsFromApi = useCallback((list: UserAccount[]) => {
     setBalanceLoadingByCurrency((prev) => {
       const next: Record<string, boolean> = { ...prev };
       for (const a of list) {
         const ccy = normalizeCurrency(a?.currencyCode);
         if (!ccy) continue;
-        next[ccy] = !isValidNumber((a as any).balance);
+        next[ccy] = !isValidNumber(a.balance); // if balance invalid, keep loading
       }
       return next;
     });
     setWalletsConfirmed(true);
+    setWaitingForValidApi(false);
+
+    // stop applying pending for currencies we just received from API
+    for (const a of list) {
+      if (a?.currencyCode) clearPendingForCurrency(a.currencyCode);
+    }
   }, []);
 
   const isWalletDisabled = (a?: Pick<UserAccount, "status" | "currencyCode"> | null) => {
@@ -682,12 +743,42 @@ export default function HomeScreen() {
     return flagsByCurrency[key] || fallbackEmoji[key] || "";
   };
 
+  /** ---------------- Bad snapshot detector ----------------
+   * Treat API snapshot as "bad" if:
+   * - It returns balances for existing currencies but ALL are 0/null
+   * - AND we have cached/previous balances with at least one > 0
+   *
+   * This prevents overwriting good cache with bogus zeros.
+   */
+  const isBadApiSnapshot = useCallback((apiAccounts: UserAccount[]) => {
+    if (!Array.isArray(apiAccounts) || apiAccounts.length === 0) return false;
+
+    const cached = cachedAccountsRef.current || [];
+    if (!cached || cached.length === 0) return false;
+
+    const cachedByCcy = new Map<string, number>();
+    for (const a of cached) {
+      const ccy = normalizeCurrency(a.currencyCode);
+      if (!ccy) continue;
+      if (typeof a.balance === "number") cachedByCcy.set(ccy, a.balance);
+    }
+
+    // if cache has no non-zero, no reason to mark bad
+    const cachedHasNonZero = Array.from(cachedByCcy.values()).some((b) => typeof b === "number" && b > 0);
+    if (!cachedHasNonZero) return false;
+
+    const apiBalances = apiAccounts.map((a) => toNumberSafe(a.balance)).map((b) => (typeof b === "number" ? b : null));
+    const apiAllZeroOrNull = apiBalances.length > 0 && apiBalances.every((b) => b === null || b === 0);
+
+    // if API returns all zeros/null while cache had non-zero, it's likely bad
+    return apiAllZeroOrNull;
+  }, []);
+
   /** -------- Main fetch ---------- */
   const fetchUserData = useCallback(
     async (force: boolean = false) => {
       const now = Date.now();
-
-      if (!force && lastFetchAtRef.current && now - lastFetchAtRef.current < 6000) return;
+      if (!force && lastFetchAtRef.current && now - lastFetchAtRef.current < 2500) return;
       if (isFetchingRef.current) return;
 
       isFetchingRef.current = true;
@@ -702,18 +793,10 @@ export default function HomeScreen() {
         }
         setUserPhone(phone);
 
-        // If network is not OK -> go to error screen
-        if (!networkOk) {
-          setLoading(false);
-          setRefreshing(false);
-          setRatesLoading(false);
-          setWalletsConfirmed(false);
-          router.replace("/networkerrorstate");
-          return;
-        }
-
-        // keep wallet amount skeleton while refreshing
+        // keep wallet amount skeleton while fetching
         markAllWalletsLoading(accountsRef.current);
+        setWaitingForValidApi(true);
+        setWalletsConfirmed(false);
 
         // user info from local storage
         const storedUser = await AsyncStorage.getItem("user_info");
@@ -761,7 +844,7 @@ export default function HomeScreen() {
           }
         } catch {}
 
-        // accounts (wallets) — if we can't fetch balances and no cache, redirect
+        // accounts (wallets)
         let userAccounts: UserAccount[] = [];
         let accountsRes: any = null;
 
@@ -771,20 +854,8 @@ export default function HomeScreen() {
           accountsRes = null;
         }
 
-        if (!accountsRes?.success) {
-          const cached = await loadCachedAccounts(phone);
-          if (!cached || cached.length === 0) {
-            setWalletsConfirmed(false);
-            router.replace("/networkerrorstate");
-            return;
-          }
-          // fall back to cache
-          userAccounts = cached;
-          setAccounts(cached);
-          setWalletsConfirmed(false);
-          markAllWalletsLoading(cached);
-        } else if (Array.isArray(accountsRes.accounts) && accountsRes.accounts.length > 0) {
-          userAccounts = accountsRes.accounts;
+        if (accountsRes?.success && Array.isArray(accountsRes.accounts) && accountsRes.accounts.length > 0) {
+          userAccounts = normalizeAccountBalances(accountsRes.accounts);
 
           // local ledger for exotic balances
           const localLedgerAccounts = userAccounts.filter((a: any) => {
@@ -806,7 +877,10 @@ export default function HomeScreen() {
               );
               const balanceByCurrency = new Map<string, number>();
               for (const { ccy, res } of results) {
-                if (res?.success) balanceByCurrency.set(ccy, Number(res.balance || 0));
+                if (res?.success) {
+                  const b = toNumberSafe(res.balance);
+                  if (typeof b === "number") balanceByCurrency.set(ccy, b);
+                }
               }
               userAccounts = userAccounts.map((a) => {
                 const ccy = normalizeCurrency(a.currencyCode);
@@ -816,56 +890,59 @@ export default function HomeScreen() {
             } catch {}
           }
 
-          setAccounts(userAccounts);
-          await saveCachedAccounts(userAccounts, phone);
+          // ✅ If the API snapshot is clearly bogus (all 0), do NOT overwrite accounts/cache
+          const badSnapshot = isBadApiSnapshot(userAccounts);
 
-          // confirm only if API snapshot
-          if (accountsRes.source === "api") {
-            confirmWalletsFromApi(userAccounts);
-          } else {
+          if (badSnapshot) {
+            // keep showing cards from cache/previous state, but keep skeletons for amounts
+            setWaitingForValidApi(true);
             setWalletsConfirmed(false);
-            markAllWalletsLoading(userAccounts);
+          } else {
+            setAccounts(userAccounts);
+            cachedAccountsRef.current = userAccounts;
+            await saveCachedAccounts(userAccounts, phone);
+            confirmWalletsFromApi(userAccounts);
           }
         } else {
-          // no wallets returned -> keep whatever cache we have, but don’t mark confirmed
+          // API failed or returned empty
+          // Keep showing cached/previous accounts; amounts remain skeleton until API recovers
+          setWaitingForValidApi(true);
           setWalletsConfirmed(false);
         }
 
-        // total balance — if cannot fetch AND no cached total, redirect
+        // total balance (only trust if not suspiciously zero when cache is non-zero)
         try {
           const totalRes = await getTotalBalance(phone);
           if (totalRes?.success) {
-            const newTotal = isValidNumber(totalRes.totalBalance) ? Number(totalRes.totalBalance) : null;
-
+            const newTotal = toNumberSafe(totalRes.totalBalance);
             const newCurrency = totalRes.homeCurrency || homeCurrency || userHomeCurrency;
             const newSymbol = totalRes.homeCurrencySymbol || totalRes.homeCurrency || homeCurrencySymbol;
 
-            if (newTotal !== null) {
+            const cachedTotal = cachedTotalRef.current;
+            const cachedNonZero = typeof cachedTotal?.total === "number" && cachedTotal.total > 0;
+
+            const suspiciousZero = cachedNonZero && typeof newTotal === "number" && newTotal === 0;
+
+            if (typeof newTotal === "number" && !suspiciousZero) {
               setTotalBalance(newTotal);
+              cachedTotalRef.current = { total: newTotal, currency: newCurrency || "", symbol: newSymbol || "" };
               await saveCachedTotalBalance(newTotal, newCurrency || "", newSymbol || "", phone);
             }
 
             if (newCurrency) setHomeCurrency(newCurrency);
             if (newSymbol) setHomeCurrencySymbol(newSymbol);
-          } else {
-            const cachedTotal = await loadCachedTotalBalance(phone);
-            if (!cachedTotal) {
-              router.replace("/networkerrorstate");
-              return;
-            }
           }
         } catch {
-          const cachedTotal = await loadCachedTotalBalance(phone);
-          if (!cachedTotal) {
-            router.replace("/networkerrorstate");
-            return;
-          }
+          // ignore; keep cached total
         }
 
-        // exchange rates
+        // exchange rates (not critical to balances)
         setRatesLoading(true);
         try {
-          const currencyCodes = userAccounts.map((a) => normalizeCurrency(a.currencyCode)).filter(Boolean);
+          const currencyCodes = (accountsRef.current.length > 0 ? accountsRef.current : cachedAccountsRef.current)
+            .map((a) => normalizeCurrency(a.currencyCode))
+            .filter(Boolean);
+
           if (userHomeCurrency && !currencyCodes.includes(userHomeCurrency)) currencyCodes.push(userHomeCurrency);
 
           const pairs: string[] = [];
@@ -903,6 +980,8 @@ export default function HomeScreen() {
           setRatesLoading(false);
         }
       } catch {
+        // keep skeleton mode
+        setWaitingForValidApi(true);
         setWalletsConfirmed(false);
       } finally {
         isFetchingRef.current = false;
@@ -912,26 +991,37 @@ export default function HomeScreen() {
       }
     },
     [
-      networkOk,
+      confirmWalletsFromApi,
       homeCurrency,
       homeCurrencySymbol,
+      isBadApiSnapshot,
       markAllWalletsLoading,
-      confirmWalletsFromApi,
-      router,
+      userName,
     ]
   );
 
+  // When pending is confirmed, try fetch again
   useEffect(() => {
     onSettlementConfirmedRef.current = () => {
       fetchUserData(true);
     };
   }, [fetchUserData]);
 
+  /** ✅ Auto-retry while waiting for a valid API snapshot */
+  useEffect(() => {
+    if (!waitingForValidApi || !networkOk) return;
+
+    const t = setInterval(() => {
+      fetchUserData(true);
+    }, 3500);
+
+    return () => clearInterval(t);
+  }, [waitingForValidApi, networkOk, fetchUserData]);
+
   /** ✅ Refresh like “reloaded” whenever user returns/back to Home */
   const didFocusOnceRef = useRef(false);
   useFocusEffect(
     useCallback(() => {
-      // initial focus is handled by normal load; after that, force refresh
       if (!didFocusOnceRef.current) {
         didFocusOnceRef.current = true;
         return;
@@ -1004,7 +1094,7 @@ export default function HomeScreen() {
       (async () => {
         try {
           const res = await getUserAccounts(userPhone, true);
-          if (res.success && res.accounts) setAccounts(res.accounts);
+          if (res.success && res.accounts) setAccounts(normalizeAccountBalances(res.accounts));
         } catch {}
         setSheetRefreshing(false);
       })();
@@ -1069,10 +1159,9 @@ export default function HomeScreen() {
     if (w > 0 && w !== fxChartWidth) setFxChartWidth(w);
   };
 
+  // ✅ Only show the BIG wallet-list skeleton when we literally have nothing to render yet.
   const shouldShowWalletSkeleton = useMemo(() => {
-    if (loading && accounts.length === 0) return true;
-    // if balances not confirmed, keep skeleton on wallet amounts (not the whole screen)
-    return false;
+    return loading && accounts.length === 0;
   }, [loading, accounts.length]);
 
   const handleVerifyEmail = async () => {
@@ -1118,8 +1207,12 @@ export default function HomeScreen() {
       <ScreenShell padded={false}>
         <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
           <NetworkBanner
-            visible={!networkOk}
-            text="We can’t load your wallets right now. Check your internet and tap Retry."
+            visible={!networkOk || waitingForValidApi}
+            text={
+              !networkOk
+                ? "We can’t reach the server right now. Your balances will appear once you’re back online."
+                : "Fetching your latest balances…"
+            }
             onRetry={() => fetchUserData(true)}
           />
 
@@ -1171,6 +1264,8 @@ export default function HomeScreen() {
 
               {loading && accounts.length === 0 ? (
                 <TotalBalanceSkeleton />
+              ) : waitingForValidApi && !hideBalance ? (
+                <TotalBalanceSkeleton />
               ) : (
                 <Pressable onPress={toggleHideBalance} style={{ flexDirection: "row", alignItems: "center" }}>
                   <Text style={{ fontWeight: "900", fontSize: 16, color: "#222" }}>
@@ -1218,9 +1313,7 @@ export default function HomeScreen() {
 
           {/* Accounts row */}
           {shouldShowWalletSkeleton ? (
-            <>
-              <AccountsListSkeleton />
-            </>
+            <AccountsListSkeleton />
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.accountsRow}>
               {accounts.length === 0 ? (
@@ -1236,7 +1329,19 @@ export default function HomeScreen() {
                 accounts.map((a) => {
                   const walletDisabled = isWalletDisabled(a);
                   const ccyKey = normalizeCurrency(a.currencyCode);
-                  const walletAmountStillLoading = !hideBalance && balanceLoadingByCurrency[ccyKey] === true && !walletsConfirmed;
+
+                  // ✅ amount-only skeleton: keep showing until we trust API
+                  const walletAmountStillLoading =
+                    !hideBalance && (waitingForValidApi || balanceLoadingByCurrency[ccyKey] === true);
+
+                  // ✅ ONLY apply optimistic pending BEFORE API-confirmed snapshot
+                  const showOptimistic = hasPendingForCurrency(a.currencyCode) && !walletsConfirmed;
+
+                  const displayBalance = showOptimistic
+                    ? isValidNumber(a.balance)
+                      ? getOptimisticBalance(a.balance as number, a.currencyCode)
+                      : null
+                    : a.balance;
 
                   return (
                     <Pressable
@@ -1268,15 +1373,10 @@ export default function HomeScreen() {
                       }}
                       style={{ marginRight: 12, opacity: walletDisabled ? 0.6 : 1 }}
                     >
-                      {/* ✅ Plain fintech card (no LinearGradient) */}
                       <View
                         style={[
                           styles.accountCardGradient,
-                          {
-                            backgroundColor: "#28b085ff",
-                            borderWidth: 1,
-                            borderColor: "rgba(255,255,255,0.18)",
-                          },
+                          { backgroundColor: "#3457f1ff", borderWidth: 1, borderColor: "rgba(255,255,255,0.18)" },
                         ]}
                       >
                         {walletDisabled ? (
@@ -1293,7 +1393,7 @@ export default function HomeScreen() {
                           >
                             <Text style={{ color: "#fff", fontSize: 10, fontWeight: "800" }}>DISABLED</Text>
                           </View>
-                        ) : hasPendingForCurrency(a.currencyCode) ? (
+                        ) : hasPendingForCurrency(a.currencyCode) && !walletsConfirmed ? (
                           <View style={{ position: "absolute", top: 10, right: 10 }}>
                             <PendingBadge visible={true} label="Settling" size="small" />
                           </View>
@@ -1315,15 +1415,7 @@ export default function HomeScreen() {
                             }}
                           />
                         ) : (
-                          <Text style={styles.accountAmountWhite}>
-                            {formatBalance(
-                              hasPendingForCurrency(a.currencyCode)
-                                ? isValidNumber(a.balance)
-                                  ? getOptimisticBalance(a.balance as number, a.currencyCode)
-                                  : null
-                                : a.balance
-                            )}
-                          </Text>
+                          <Text style={styles.accountAmountWhite}>{formatBalance(displayBalance)}</Text>
                         )}
 
                         <Image
@@ -1376,7 +1468,7 @@ export default function HomeScreen() {
             </ScrollView>
           )}
 
-          {/* Actions (with icons) */}
+          {/* Actions */}
           <View style={styles.actionsRow}>
             <PrimaryButton
               title={
@@ -1448,7 +1540,6 @@ export default function HomeScreen() {
               >
                 <View style={{ alignItems: "center" }}>
                   <View style={styles.recentEmptyIconCircle}>
-                    {/* ✅ icon (no emoji) */}
                     <Ionicons name="people-outline" size={24} color={COLORS.primary} />
                   </View>
 
@@ -1603,7 +1694,16 @@ export default function HomeScreen() {
             return (
               <Pressable
                 key={a.id}
-                style={[styles.sheetRow, { opacity: walletDisabled ? 0.6 : 1 }]}
+                style={[styles.sheetRow, {
+                  // flexDirection: "row",
+                  alignItems: "center",
+                  padding: 16,
+                  // marginHorizontal: 16,
+                  marginBottom: 8,
+                  backgroundColor: "#F9FAFB",
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: "#E5E7EB"}, { opacity: walletDisabled ? 0.6 : 1 }]}
                 onPress={() => {
                   if (walletDisabled) {
                     Alert.alert("Wallet Disabled", "This wallet has been disabled.");
@@ -1617,10 +1717,13 @@ export default function HomeScreen() {
                   <CountryFlag currencyCode={a.currencyCode} size="lg" />
                   <View>
                     <Text style={styles.sheetRowTitle}>{a.currencyCode}</Text>
-                    <Text style={styles.sheetRowSub}>{a.currencyCode}</Text>
+                    {/* <Text style={styles.sheetRowSub}>{a.currencyCode}</Text> */}
                   </View>
                 </View>
-                <Text style={styles.sheetRowAmt}>{formatBalance(a.balance)}</Text>
+                {/* if we're waiting for valid API, keep this as skeleton-ish by hiding values */}
+                <Text style={styles.sheetRowAmt}>
+                  {waitingForValidApi && !hideBalance ? "…" : formatBalance(a.balance)}
+                </Text>
               </Pressable>
             );
           })

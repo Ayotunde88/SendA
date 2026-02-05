@@ -47,7 +47,7 @@ export default function VerifyIdentityCardScreen({ onPress, userPhone }: Props) 
       /> */}
       <Ionicons
         name="person-circle-outline"
-        size={22}
+        size={40}
         color={COLORS.primary}
       />
 

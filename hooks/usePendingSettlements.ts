@@ -152,48 +152,66 @@ export function aggregatePendingByCurrency(settlements: PendingSettlement[]): Pe
   return result;
 }
 
+export async function clearAllPendingSettlements(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(PENDING_SETTLEMENTS_KEY, JSON.stringify([]));
+    console.log('[PendingSettlements] Cleared ALL pending settlements');
+  } catch (e) {
+    console.log('[PendingSettlements] Failed to clear all:', e);
+  }
+}
+
 // Calculate optimistic balance - only applies delta if API hasn't already settled
+// export function getOptimisticBalance(
+//   actualBalance: number,
+//   currencyCode: string,
+//   pendingByCurrency: PendingSettlementsByWallet
+// ): number {
+//   const key = normalizeCurrencyCode(currencyCode);
+//   const pending = pendingByCurrency[key];
+//   if (!pending) return actualBalance;
+
+//   const tolerance = 0.01;
+
+//   // For DEBIT (sell side): only adjust if we have baseline AND balance hasn't changed
+//   if (pending.pendingDebit > 0) {
+//     if (typeof pending.sellBalanceBefore === 'number') {
+//       // Check if balance is still at baseline (not yet settled by API)
+//       if (Math.abs(actualBalance - pending.sellBalanceBefore) < tolerance) {
+//         // API hasn't settled yet - show optimistic (debited) balance
+//         return pending.sellBalanceBefore - pending.pendingDebit;
+//       }
+//       // API already shows different balance - trust the API
+//       return actualBalance;
+//     }
+//     // No baseline stored - trust actual balance (don't guess)
+//     return actualBalance;
+//   }
+
+//   // For CREDIT (buy side): only adjust if we have baseline AND balance hasn't changed
+//   if (pending.pendingCredit > 0) {
+//     if (typeof pending.buyBalanceBefore === 'number') {
+//       // Check if balance is still at baseline (not yet settled by API)
+//       if (Math.abs(actualBalance - pending.buyBalanceBefore) < tolerance) {
+//         // API hasn't settled yet - show optimistic (credited) balance
+//         return pending.buyBalanceBefore + pending.pendingCredit;
+//       }
+//       // API already shows different balance - trust the API
+//       return actualBalance;
+//     }
+//     // No baseline stored - trust actual balance (don't guess)
+//     return actualBalance;
+//   }
+
+//   return actualBalance;
+// }
+
 export function getOptimisticBalance(
   actualBalance: number,
   currencyCode: string,
   pendingByCurrency: PendingSettlementsByWallet
 ): number {
-  const key = normalizeCurrencyCode(currencyCode);
-  const pending = pendingByCurrency[key];
-  if (!pending) return actualBalance;
-
-  const tolerance = 0.01;
-
-  // For DEBIT (sell side): only adjust if we have baseline AND balance hasn't changed
-  if (pending.pendingDebit > 0) {
-    if (typeof pending.sellBalanceBefore === 'number') {
-      // Check if balance is still at baseline (not yet settled by API)
-      if (Math.abs(actualBalance - pending.sellBalanceBefore) < tolerance) {
-        // API hasn't settled yet - show optimistic (debited) balance
-        return pending.sellBalanceBefore - pending.pendingDebit;
-      }
-      // API already shows different balance - trust the API
-      return actualBalance;
-    }
-    // No baseline stored - trust actual balance (don't guess)
-    return actualBalance;
-  }
-
-  // For CREDIT (buy side): only adjust if we have baseline AND balance hasn't changed
-  if (pending.pendingCredit > 0) {
-    if (typeof pending.buyBalanceBefore === 'number') {
-      // Check if balance is still at baseline (not yet settled by API)
-      if (Math.abs(actualBalance - pending.buyBalanceBefore) < tolerance) {
-        // API hasn't settled yet - show optimistic (credited) balance
-        return pending.buyBalanceBefore + pending.pendingCredit;
-      }
-      // API already shows different balance - trust the API
-      return actualBalance;
-    }
-    // No baseline stored - trust actual balance (don't guess)
-    return actualBalance;
-  }
-
+  // DEPRECATED: Always return actual balance - no more optimistic adjustments
   return actualBalance;
 }
 

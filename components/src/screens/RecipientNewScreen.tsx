@@ -29,6 +29,9 @@ import { SavedRecipient } from "./RecipientSelectScreen";
 
 const SAVED_RECIPIENTS_KEY = "saved_recipients";
 
+// ✅ Email validation for Interac
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 /** ---------------- Bank Picker Modal (OLD STYLING) ---------------- **/
 function BankPickerModal({
   visible,
@@ -127,7 +130,7 @@ function BankPickerModal({
   );
 }
 
-/** ---------------- Screen (OLD LAYOUT + NEW FEATURES) ---------------- **/
+/** ---------------- Screen (OLD LAYOUT + INTERAC UPDATE) ---------------- **/
 export default function RecipientNewScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
@@ -139,28 +142,38 @@ export default function RecipientNewScreen() {
     rate?: string;
     countryCode?: string;
     countryName?: string;
+    // optional
+    isInterac?: string;
   }>();
 
   const destCurrency = (params.destCurrency || "NGN").toUpperCase();
-  const countryCode = (params.countryCode || CURRENCY_TO_COUNTRY[destCurrency] || "NG").toUpperCase();
-  const countryName = params.countryName || COUNTRY_NAMES[countryCode] || countryCode;
+
+  // ✅ Interac (CAD) detection
+  const isCanada = destCurrency === "CAD";
+
+  const countryCode = (isCanada ? "CA" : params.countryCode || CURRENCY_TO_COUNTRY[destCurrency] || "NG").toUpperCase();
+  const countryName = isCanada ? "Canada" : params.countryName || COUNTRY_NAMES[countryCode] || countryCode;
 
   const symbol = getCurrencySymbol(destCurrency);
   const toAmountRaw = Number.parseFloat(params.toAmount || "0") || 0;
 
   const [userPhone, setUserPhone] = useState("");
 
-  // Bank data (dynamic by country)
+  // Bank data (dynamic by country) — ✅ skip banks for CAD
   const [banks, setBanks] = useState<Bank[]>([]);
-  const [banksLoading, setBanksLoading] = useState(true);
+  const [banksLoading, setBanksLoading] = useState(!isCanada);
 
-  // Form state
+  // Form state (Bank transfer / Flutterwave)
   const [selectedBank, setSelectedBank] = useState<Bank | null>(null);
   const [accountNumber, setAccountNumber] = useState("");
   const [accountName, setAccountName] = useState("");
   const [isVerified, setIsVerified] = useState(false);
   const [saveRecipient, setSaveRecipient] = useState(true);
   const [verifying, setVerifying] = useState(false);
+
+  // ✅ Interac form state (CAD)
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [recipientName, setRecipientName] = useState("");
 
   // Modal states
   const [showBankPicker, setShowBankPicker] = useState(false);
@@ -175,8 +188,14 @@ export default function RecipientNewScreen() {
     });
   }, []);
 
-  // Load banks for destination country (NEW FEATURE, OLD UI)
+  // Load banks for destination country (NEW FEATURE, OLD UI) — ✅ skip for Interac
   useEffect(() => {
+    if (isCanada) {
+      setBanks([]);
+      setBanksLoading(false);
+      return;
+    }
+
     const loadBanks = async () => {
       setBanksLoading(true);
       try {
@@ -192,15 +211,16 @@ export default function RecipientNewScreen() {
     };
 
     loadBanks();
-  }, [countryCode, countryName]);
+  }, [countryCode, countryName, isCanada]);
 
-  // Reset verification when bank/account changes (keep old behavior + fix)
+  // Reset verification when bank/account changes (keep old behavior + fix) — ✅ skip for Interac
   useEffect(() => {
+    if (isCanada) return;
     setIsVerified(false);
     if (isNigeria) setAccountName("");
-  }, [selectedBank?.code, accountNumber, isNigeria]);
+  }, [selectedBank?.code, accountNumber, isNigeria, isCanada]);
 
-  // Verify account (NG auto-verifies, others manual confirm)
+  // Verify account (NG auto-verifies, others manual confirm) — ✅ skip for Interac
   const handleVerifyAccount = useCallback(async () => {
     if (!selectedBank || accountNumber.length < 6) {
       Alert.alert("Invalid input", "Please select a bank and enter a valid account number.");
@@ -246,14 +266,81 @@ export default function RecipientNewScreen() {
     }
   }, [selectedBank, accountNumber, accountName, isNigeria]);
 
-  // Auto-verify for NG when 10 digits (NEW FEATURE)
+  // Auto-verify for NG when 10 digits (NEW FEATURE) — ✅ skip for Interac
   useEffect(() => {
+    if (isCanada) return;
     if (isNigeria && accountNumber.length === 10 && selectedBank && !isVerified && !verifying) {
       handleVerifyAccount();
     }
-  }, [accountNumber, selectedBank, isVerified, verifying, handleVerifyAccount, isNigeria]);
+  }, [accountNumber, selectedBank, isVerified, verifying, handleVerifyAccount, isNigeria, isCanada]);
 
   const handleContinue = async () => {
+    // ✅ CAD / Interac flow (email-based)
+    if (isCanada) {
+      const email = recipientEmail.trim().toLowerCase();
+      const name = recipientName.trim();
+
+      if (!EMAIL_REGEX.test(email)) {
+        Alert.alert("Invalid email", "Please enter a valid recipient email address.");
+        return;
+      }
+      if (!name) {
+        Alert.alert("Recipient name required", "Please enter the recipient's name.");
+        return;
+      }
+
+      // Save recipient if checked (same as old local AsyncStorage, but Interac fields)
+      if (saveRecipient) {
+        try {
+          const existingData = await AsyncStorage.getItem(SAVED_RECIPIENTS_KEY);
+          const existing: SavedRecipient[] = existingData ? JSON.parse(existingData) : [];
+
+          const newRecipient: SavedRecipient = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            accountName: name,
+            accountNumber: email, // ✅ Interac uses email here
+            bankCode: "INTERAC",
+            bankName: "Interac e-Transfer",
+            currency: destCurrency,
+            countryCode: "CA",
+            createdAt: Date.now(),
+          };
+
+          const isDuplicate = existing.some(
+            (r) =>
+              String(r.accountNumber || "").toLowerCase() === email &&
+              r.bankCode === "INTERAC" &&
+              r.currency === destCurrency
+          );
+
+          if (!isDuplicate) {
+            await AsyncStorage.setItem(SAVED_RECIPIENTS_KEY, JSON.stringify([newRecipient, ...existing]));
+          }
+        } catch (e) {
+          console.error("Failed to save Interac recipient:", e);
+        }
+      }
+
+      router.push({
+        pathname: "/recipientconfirm" as any,
+        params: {
+          ...params,
+          recipient: JSON.stringify({
+            accountName: name,
+            accountNumber: email, // ✅ email in accountNumber field for Interac
+            bankCode: "INTERAC",
+            bankName: "Interac e-Transfer",
+            currency: destCurrency,
+            countryCode: "CA",
+            isInterac: "true",
+          }),
+          mode: "new",
+        },
+      });
+      return;
+    }
+
+    // ---- Original bank transfer flow (unchanged) ----
     if (!selectedBank || !accountNumber) {
       Alert.alert("Incomplete", "Please select a bank and enter the account number.");
       return;
@@ -293,10 +380,7 @@ export default function RecipientNewScreen() {
         };
 
         const isDuplicate = existing.some(
-          (r) =>
-            r.accountNumber === accountNumber &&
-            r.bankCode === selectedBank.code &&
-            r.currency === destCurrency
+          (r) => r.accountNumber === accountNumber && r.bankCode === selectedBank.code && r.currency === destCurrency
         );
 
         if (!isDuplicate) {
@@ -324,12 +408,13 @@ export default function RecipientNewScreen() {
     });
   };
 
-  // Can continue rules (old + correct for NG)
-  const canContinue =
-    !!selectedBank &&
-    accountNumber.trim().length >= 6 &&
-    accountName.trim().length > 0 &&
-    (!isNigeria ? isVerified || true : isVerified || verifying);
+  // Can continue rules (old + correct for NG) — ✅ add Interac rules
+  const canContinue = isCanada
+    ? EMAIL_REGEX.test(recipientEmail.trim()) && recipientName.trim().length > 0
+    : !!selectedBank &&
+      accountNumber.trim().length >= 6 &&
+      accountName.trim().length > 0 &&
+      (!isNigeria ? isVerified || true : isVerified || verifying);
 
   const formattedSendAmount = `${symbol}${toAmountRaw.toLocaleString("en-US", {
     minimumFractionDigits: 2,
@@ -370,92 +455,145 @@ export default function RecipientNewScreen() {
                 <Text style={otherstyles.recipientNewPillText}>{countryName}</Text>
               </View>
               <View style={otherstyles.recipientNewPillSoft}>
-                <Text style={otherstyles.recipientNewPillSoftText}>Bank transfer</Text>
+                <Text style={otherstyles.recipientNewPillSoftText}>
+                  {isCanada ? "Interac e-Transfer" : "Bank transfer"}
+                </Text>
               </View>
             </View>
           </View>
 
-          {/* Bank (OLD UI, dynamic banks) */}
-          <Text style={otherstyles.recipientNewLabel}>Select bank</Text>
-          <Pressable
-            style={otherstyles.recipientNewSelect}
-            onPress={() => setShowBankPicker(true)}
-            disabled={banksLoading}
-          >
-            <Text
-              style={[
-                otherstyles.recipientNewSelectText,
-                !selectedBank && otherstyles.recipientNewSelectPlaceholder,
-              ]}
-            >
-              {selectedBank?.name || (banksLoading ? "Loading banks…" : "Tap to select bank")}
-            </Text>
-            <Text style={otherstyles.recipientNewSelectChevron}>›</Text>
-          </Pressable>
-
-          {/* Account Number (OLD UI + keeps verification pill/spinner) */}
-          <Text style={otherstyles.recipientNewLabel}>Account number</Text>
-          <View style={otherstyles.recipientNewInputBox}>
-            <TextInput
-              style={otherstyles.recipientNewInput}
-              placeholder="Enter account number"
-              placeholderTextColor="#9CA3AF"
-              value={accountNumber}
-              onChangeText={(text) => {
-                setAccountNumber(text.replace(/\D/g, ""));
-              }}
-              keyboardType="number-pad"
-              maxLength={20}
-            />
-
-            {verifying ? (
-              <ActivityIndicator size="small" color={COLORS.primary} />
-            ) : isNigeria && isVerified ? (
-              <View style={otherstyles.recipientNewVerifiedPill}>
-                <Text style={otherstyles.recipientNewVerifiedText}>Verified</Text>
+          {/* ✅ CAD/Interac form (keeps OLD layout vibe) */}
+          {isCanada ? (
+            <>
+              <View
+                style={{
+                  marginTop: 14,
+                  backgroundColor: "#DBEAFE",
+                  borderRadius: 12,
+                  padding: 12,
+                }}
+              >
+                <Text style={{ color: "#1E40AF", fontWeight: "900" }}>Interac e-Transfer</Text>
+                <Text style={{ color: "#1E40AF", marginTop: 6, fontSize: 12, fontWeight: "700" }}>
+                  Enter the recipient’s email and name. They will receive an email to deposit the funds.
+                </Text>
               </View>
-            ) : null}
-          </View>
 
-          {/* Helper row (OLD but updated message) */}
-          {isNigeria ? (
-            <Text style={otherstyles.recipientNewHelpText}>
-              We’ll auto-verify Nigerian accounts once you enter 10 digits.
-            </Text>
+              {/* Recipient Email */}
+              <Text style={[otherstyles.recipientNewLabel, { marginTop: 16 }]}>Recipient email</Text>
+              <View style={otherstyles.recipientNewInputBox}>
+                <TextInput
+                  style={otherstyles.recipientNewInput}
+                  placeholder="recipient@email.com"
+                  placeholderTextColor="#9CA3AF"
+                  value={recipientEmail}
+                  onChangeText={setRecipientEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  maxLength={255}
+                />
+              </View>
+
+              {/* Recipient Name */}
+              <Text style={otherstyles.recipientNewLabel}>Recipient name</Text>
+              <View style={otherstyles.recipientNewInputBox}>
+                <TextInput
+                  style={otherstyles.recipientNewInput}
+                  placeholder="Enter recipient's full name"
+                  placeholderTextColor="#9CA3AF"
+                  value={recipientName}
+                  onChangeText={setRecipientName}
+                  autoCapitalize="words"
+                  maxLength={100}
+                />
+              </View>
+            </>
           ) : (
-            <Text style={otherstyles.recipientNewHelpText}>
-              For {countryName}, enter the recipient name manually and confirm the details.
-            </Text>
+            <>
+              {/* Bank (OLD UI, dynamic banks) */}
+              <Text style={otherstyles.recipientNewLabel}>Select bank</Text>
+              <Pressable
+                style={otherstyles.recipientNewSelect}
+                onPress={() => setShowBankPicker(true)}
+                disabled={banksLoading}
+              >
+                <Text
+                  style={[
+                    otherstyles.recipientNewSelectText,
+                    !selectedBank && otherstyles.recipientNewSelectPlaceholder,
+                  ]}
+                >
+                  {selectedBank?.name || (banksLoading ? "Loading banks…" : "Tap to select bank")}
+                </Text>
+                <Text style={otherstyles.recipientNewSelectChevron}>›</Text>
+              </Pressable>
+
+              {/* Account Number (OLD UI + keeps verification pill/spinner) */}
+              <Text style={otherstyles.recipientNewLabel}>Account number</Text>
+              <View style={otherstyles.recipientNewInputBox}>
+                <TextInput
+                  style={otherstyles.recipientNewInput}
+                  placeholder="Enter account number"
+                  placeholderTextColor="#9CA3AF"
+                  value={accountNumber}
+                  onChangeText={(text) => {
+                    setAccountNumber(text.replace(/\D/g, ""));
+                  }}
+                  keyboardType="number-pad"
+                  maxLength={20}
+                />
+
+                {verifying ? (
+                  <ActivityIndicator size="small" color={COLORS.primary} />
+                ) : isNigeria && isVerified ? (
+                  <View style={otherstyles.recipientNewVerifiedPill}>
+                    <Text style={otherstyles.recipientNewVerifiedText}>Verified</Text>
+                  </View>
+                ) : null}
+              </View>
+
+              {/* Helper row (OLD but updated message) */}
+              {isNigeria ? (
+                <Text style={otherstyles.recipientNewHelpText}>
+                  We’ll auto-verify Nigerian accounts once you enter 10 digits.
+                </Text>
+              ) : (
+                <Text style={otherstyles.recipientNewHelpText}>
+                  For {countryName}, enter the recipient name manually and confirm the details.
+                </Text>
+              )}
+
+              {/* Recipient Name (OLD UI) */}
+              <Text style={otherstyles.recipientNewLabel}>Recipient name</Text>
+              <View
+                style={[
+                  otherstyles.recipientNewInputBox,
+                  isNigeria && isVerified ? otherstyles.recipientNewInputBoxVerified : null,
+                ]}
+              >
+                <TextInput
+                  style={otherstyles.recipientNewInput}
+                  placeholder={isNigeria ? "Auto-filled after verification" : "Enter recipient name"}
+                  placeholderTextColor="#9CA3AF"
+                  value={accountName}
+                  onChangeText={(t) => {
+                    setAccountName(t);
+                    if (!isNigeria) setIsVerified(false); // non-NG: changing name means re-confirm
+                  }}
+                  editable={!isNigeria || !isVerified}
+                  autoCapitalize="words"
+                />
+              </View>
+
+              {/* Manual confirm (Non-NG) (NEW FEATURE, OLD BUTTON STYLE) */}
+              {!isNigeria && accountNumber.length >= 6 && accountName.trim() && !isVerified ? (
+                <Pressable style={otherstyles.recipientNewSoftBtn} onPress={() => setIsVerified(true)}>
+                  <Text style={otherstyles.recipientNewSoftBtnText}>✓ Confirm recipient details</Text>
+                </Pressable>
+              ) : null}
+            </>
           )}
-
-          {/* Recipient Name (OLD UI) */}
-          <Text style={otherstyles.recipientNewLabel}>Recipient name</Text>
-          <View
-            style={[
-              otherstyles.recipientNewInputBox,
-              isNigeria && isVerified ? otherstyles.recipientNewInputBoxVerified : null,
-            ]}
-          >
-            <TextInput
-              style={otherstyles.recipientNewInput}
-              placeholder={isNigeria ? "Auto-filled after verification" : "Enter recipient name"}
-              placeholderTextColor="#9CA3AF"
-              value={accountName}
-              onChangeText={(t) => {
-                setAccountName(t);
-                if (!isNigeria) setIsVerified(false); // non-NG: changing name means re-confirm
-              }}
-              editable={!isNigeria || !isVerified}
-              autoCapitalize="words"
-            />
-          </View>
-
-          {/* Manual confirm (Non-NG) (NEW FEATURE, OLD BUTTON STYLE) */}
-          {!isNigeria && accountNumber.length >= 6 && accountName.trim() && !isVerified ? (
-            <Pressable style={otherstyles.recipientNewSoftBtn} onPress={() => setIsVerified(true)}>
-              <Text style={otherstyles.recipientNewSoftBtnText}>✓ Confirm recipient details</Text>
-            </Pressable>
-          ) : null}
 
           {/* Save recipient toggle (OLD) */}
           <Pressable style={otherstyles.recipientNewSaveRow} onPress={() => setSaveRecipient((v) => !v)}>
@@ -478,20 +616,22 @@ export default function RecipientNewScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Bank Picker (OLD MODAL UI) */}
-      <BankPickerModal
-        visible={showBankPicker}
-        banks={banks}
-        banksLoading={banksLoading}
-        onSelect={(b) => {
-          setSelectedBank(b);
-          setBankSearchQuery("");
-        }}
-        onClose={() => setShowBankPicker(false)}
-        searchQuery={bankSearchQuery}
-        setSearchQuery={setBankSearchQuery}
-        countryName={countryName}
-      />
+      {/* Bank Picker (OLD MODAL UI) — ✅ only relevant for non-CAD */}
+      {!isCanada && (
+        <BankPickerModal
+          visible={showBankPicker}
+          banks={banks}
+          banksLoading={banksLoading}
+          onSelect={(b) => {
+            setSelectedBank(b);
+            setBankSearchQuery("");
+          }}
+          onClose={() => setShowBankPicker(false)}
+          searchQuery={bankSearchQuery}
+          setSearchQuery={setBankSearchQuery}
+          countryName={countryName}
+        />
+      )}
     </ScreenShell>
   );
 }

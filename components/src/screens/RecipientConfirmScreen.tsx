@@ -1,38 +1,38 @@
 /**
- * RecipientConfirmScreen - Confirm and execute transfer to Flutterwave-supported countries
+ * RecipientConfirmScreen - Confirm and execute transfer to Flutterwave-supported countries or Interac (CAD)
  *
- * Fintech UI:
- * - Clean header row
- * - Big “Recipient gets” amount card
- * - Breakdown rows (You send, rate)
- * - Recipient details card
- * - Info notice card
- * - Primary CTA + secondary cancel
- * - PIN modal for authorization
+ * ✅ Update added from the other code:
+ * - Interac security question + answer fields
+ * - Validate Q&A before showing PIN modal
+ * - Pass securityQuestion/securityAnswer to sendInteracPayout
+ *
+ * (Your original UI + otherstyles layout is preserved.)
  */
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
-  Platform,
   Pressable,
   Alert,
   ActivityIndicator,
   ScrollView,
+  TextInput,
+  Platform,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useRouter, useLocalSearchParams, usePathname } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import ScreenShell from "../../../components/ScreenShell";
 import PinVerificationModal from "../../../components/PinVerificationModal";
 import { otherstyles } from "../../../theme/otherstyles";
 import { styles } from "../../../theme/styles";
-import { COLORS } from "../../../theme/colors";
 import {
   sendFlutterwave,
   getCurrencySymbol,
   COUNTRY_NAMES,
   CURRENCY_TO_COUNTRY,
 } from "../../../api/flutterwave";
+import { saveRecipientToDB } from "../../../api/sync";
+
 import { sendInteracPayout } from "../../../api/paysafe";
 
 interface RecipientData {
@@ -42,7 +42,7 @@ interface RecipientData {
   bankName: string;
   currency: string;
   countryCode: string;
-  isInterac?: string;
+  isInterac?: boolean | string;
 }
 
 export default function RecipientConfirmScreen() {
@@ -62,6 +62,10 @@ export default function RecipientConfirmScreen() {
   const [sending, setSending] = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
 
+  // ✅ Interac security Q&A state (NEW)
+  const [securityQuestion, setSecurityQuestion] = useState("");
+  const [securityAnswer, setSecurityAnswer] = useState("");
+
   const recipient: RecipientData | null = useMemo(() => {
     try {
       return params.recipient ? (JSON.parse(params.recipient) as RecipientData) : null;
@@ -69,14 +73,19 @@ export default function RecipientConfirmScreen() {
       return null;
     }
   }, [params.recipient]);
-  const isInterac = recipient?.isInterac === "true" || recipient?.bankCode === "INTERAC";
-  const destCurrency = (recipient?.currency || params.destCurrency || "NGN").toUpperCase();
-  const countryCode =
-    recipient?.countryCode ||
-    CURRENCY_TO_COUNTRY[destCurrency] ||
-    "NG";
 
- const countryName = isInterac ? "Canada" : (COUNTRY_NAMES[countryCode] || countryCode);
+  // Detect Interac: check isInterac flag OR bankCode === "INTERAC"
+  const isInterac = useMemo(() => {
+    if (!recipient) return false;
+    if (recipient.isInterac === true || recipient.isInterac === "true") return true;
+    if (recipient.bankCode === "INTERAC") return true;
+    return false;
+  }, [recipient]);
+
+  const destCurrency = (recipient?.currency || params.destCurrency || "NGN").toUpperCase();
+  const countryCode = recipient?.countryCode || CURRENCY_TO_COUNTRY[destCurrency] || "NG";
+  const countryName = isInterac ? "Canada" : COUNTRY_NAMES[countryCode] || countryCode;
+
   const symbol = getCurrencySymbol(destCurrency);
   const fromCurrency = (params.fromCurrency || "USD").toUpperCase();
   const fromSymbol = getCurrencySymbol(fromCurrency);
@@ -117,6 +126,21 @@ export default function RecipientConfirmScreen() {
       Alert.alert("Error", "Missing recipient or user information");
       return;
     }
+
+    // ✅ Validate Interac security Q&A before PIN modal (NEW)
+    if (isInterac) {
+      const q = securityQuestion.trim();
+      const a = securityAnswer.trim();
+      if (!q || q.length < 5) {
+        Alert.alert("Security question required", "Please enter a security question (at least 5 characters).");
+        return;
+      }
+      if (!a || a.length < 3) {
+        Alert.alert("Security answer required", "Please enter a security answer (at least 3 characters).");
+        return;
+      }
+    }
+
     setShowPinModal(true);
   };
 
@@ -132,13 +156,16 @@ export default function RecipientConfirmScreen() {
       let response;
 
       if (isInterac) {
-        // CAD via Interac e-Transfer
+        // CAD via Interac e-Transfer (Paysafe)
         response = await sendInteracPayout({
           phone: userPhone,
           amount: toAmount,
-          recipientEmail: recipient.accountNumber, // Email stored as accountNumber
+          recipientEmail: recipient.accountNumber, // Email stored as accountNumber for Interac
           recipientName: recipient.accountName,
           message: `Transfer to ${recipient.accountName}`,
+          // ✅ pass Q&A (NEW)
+          securityQuestion: securityQuestion.trim(),
+          securityAnswer: securityAnswer.trim(),
         });
       } else {
         // African currencies via Flutterwave
@@ -157,36 +184,55 @@ export default function RecipientConfirmScreen() {
       }
 
       if (response.success) {
+        try {
+          await saveRecipientToDB({
+            phone: userPhone,
+            accountName: recipient.accountName,
+            accountNumber: recipient.accountNumber,
+            bankCode: recipient.bankCode || (isInterac ? "INTERAC" : ""),
+            bankName: recipient.bankName || (isInterac ? "Interac e-Transfer" : ""),
+            currency: destCurrency,
+            countryCode: isInterac ? "CA" : countryCode,
+            isInterac: isInterac,
+          });
+          console.log("[RecipientConfirmScreen] Recipient saved successfully");
+        } catch (saveError) {
+          console.error("[RecipientConfirmScreen] Failed to save recipient:", saveError);
+          // Don't block success - this is a background save
+        }
         const successMessage = isInterac
-          ? `An Interac e-Transfer of ${symbol}${toAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} has been sent to ${recipient.accountNumber}`
-          : `${symbol}${toAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ${destCurrency} has been sent to ${recipient.accountName}`;
+          ? `An Interac e-Transfer of ${formattedToAmount} ${destCurrency} has been sent to ${recipient.accountNumber}`
+          : `${formattedToAmount} ${destCurrency} has been sent to ${recipient.accountName}`;
 
         router.push({
-        pathname: "/result",
-        params: {
-          type: "success",
-          title: "Transfer Successful",
-          message: `${isInterac ? successMessage : formattedToAmount} ${destCurrency} has been sent to ${recipient.accountName}`,
-          primaryText: "Done",
-          primaryRoute: "/(tabs)/",
-          secondaryText: "Go to Home",
-          secondaryRoute: "/(tabs)/",
-        },
-      });
+          pathname: "/result",
+          params: {
+            type: "success",
+            title: isInterac ? "Interac Transfer Sent" : "Transfer Successful",
+            message: successMessage,
+            primaryText: "Done",
+            primaryRoute: "/(tabs)/",
+            secondaryText: "Go to Home",
+            secondaryRoute: "/(tabs)/",
+          },
+        });
       } else {
-        // Alert.alert("Transfer Failed", response.message || "Failed to send money. Please try again.");
+        const errorMessage = isInterac
+          ? `Interac e-Transfer to ${recipient.accountNumber} could not be completed`
+          : `${formattedToAmount} ${destCurrency} could not be sent to ${recipient.accountName}`;
+
         router.push({
-        pathname: "/result",
-        params: {
-          type: "error",
-          title: "Transfer Failed",
-          message: `${formattedToAmount} ${destCurrency} could not be sent to ${recipient.accountName}`,
-          primaryText: "Try Again",
-          primaryRoute: "/(tabs)/",
-          secondaryText: "Go to Home",
-          secondaryRoute: "/(tabs)/",
-        },
-      });
+          pathname: "/result",
+          params: {
+            type: "error",
+            title: "Transfer Failed",
+            message: response.message || errorMessage,
+            primaryText: "Try Again",
+            primaryRoute: "/(tabs)/",
+            secondaryText: "Go to Home",
+            secondaryRoute: "/(tabs)/",
+          },
+        });
       }
     } catch (error: any) {
       console.error("Transfer error:", error);
@@ -209,12 +255,21 @@ export default function RecipientConfirmScreen() {
     );
   }
 
+  // Display values for Interac vs Bank transfers
+  const transferMethodLabel = isInterac ? "Interac e-Transfer" : "Bank Transfer";
+  const accountFieldLabel = isInterac ? "Email address" : "Account number";
+  const bankFieldLabel = isInterac ? "Transfer method" : "Bank";
+  const bankFieldValue = isInterac ? "Interac e-Transfer" : recipient.bankName;
+
+  // Notice text differs for Interac vs bank transfers
+  const noticeTitle = isInterac ? "Interac e-Transfer" : "Transfer timeline";
+  const noticeText = isInterac
+    ? "The recipient will receive an email to accept the transfer. Funds are typically available within minutes once accepted."
+    : "Fees may apply. Transfers typically arrive within 24 hours depending on the bank.";
+
   return (
     <ScreenShell padded={false}>
-      <ScrollView
-        contentContainerStyle={otherstyles.confirmContainer}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView contentContainerStyle={otherstyles.confirmContainer} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={otherstyles.confirmHeader}>
           <Pressable onPress={() => router.back()} style={otherstyles.backBtn}>
@@ -245,7 +300,7 @@ export default function RecipientConfirmScreen() {
             <View style={otherstyles.confirmHeroDot} />
 
             <Text style={otherstyles.confirmHeroMetaText}>
-              {countryName}
+              {isInterac ? "Interac e-Transfer" : countryName}
             </Text>
           </View>
         </View>
@@ -266,6 +321,12 @@ export default function RecipientConfirmScreen() {
               </View>
             </>
           )}
+
+          <View style={otherstyles.confirmDivider} />
+          <View style={otherstyles.confirmRow}>
+            <Text style={otherstyles.confirmRowLabel}>Transfer method</Text>
+            <Text style={otherstyles.confirmRowValueSmall}>{transferMethodLabel}</Text>
+          </View>
         </View>
 
         {/* Recipient details */}
@@ -273,14 +334,14 @@ export default function RecipientConfirmScreen() {
 
         <View style={otherstyles.confirmCard}>
           <View style={otherstyles.confirmDetailBlock}>
-            <Text style={otherstyles.confirmDetailLabel}>Account name</Text>
+            <Text style={otherstyles.confirmDetailLabel}>Recipient name</Text>
             <Text style={otherstyles.confirmDetailValue}>{recipient.accountName}</Text>
           </View>
 
           <View style={otherstyles.confirmDivider} />
 
           <View style={otherstyles.confirmDetailBlock}>
-            <Text style={otherstyles.confirmDetailLabel}>{isInterac ? "Email" : "Account Number"}</Text>
+            <Text style={otherstyles.confirmDetailLabel}>{accountFieldLabel}</Text>
             <Text style={[otherstyles.confirmDetailValue, otherstyles.confirmMono]}>
               {recipient.accountNumber}
             </Text>
@@ -289,8 +350,8 @@ export default function RecipientConfirmScreen() {
           <View style={otherstyles.confirmDivider} />
 
           <View style={otherstyles.confirmDetailBlock}>
-            <Text style={otherstyles.confirmDetailLabel}>Bank</Text>
-            <Text style={otherstyles.confirmDetailValue}>{recipient.bankName}</Text>
+            <Text style={otherstyles.confirmDetailLabel}>{bankFieldLabel}</Text>
+            <Text style={otherstyles.confirmDetailValue}>{bankFieldValue}</Text>
           </View>
 
           <View style={otherstyles.confirmDivider} />
@@ -301,16 +362,74 @@ export default function RecipientConfirmScreen() {
           </View>
         </View>
 
+        {/* ✅ Interac Security Q&A (NEW, inserted using your existing design language) */}
+        {isInterac && (
+          <>
+            <Text style={otherstyles.confirmSectionTitle}>Security question</Text>
+
+            <View style={otherstyles.confirmCard}>
+              <View style={otherstyles.confirmDetailBlock}>
+                <Text style={otherstyles.confirmDetailLabel}>Security question</Text>
+                <TextInput
+                  value={securityQuestion}
+                  onChangeText={setSecurityQuestion}
+                  placeholder="e.g., What is your favourite colour?"
+                  placeholderTextColor="#9CA3AF"
+                  maxLength={100}
+                  autoCapitalize="sentences"
+                  style={[
+                    otherstyles.confirmDetailValue,
+                    {
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      borderWidth: 1,
+                      borderColor: "#E5E7EB",
+                      borderRadius: 10,
+                      backgroundColor: "#F9FAFB",
+                      marginTop: 8,
+                      fontFamily: Platform.OS === "ios" ? undefined : undefined,
+                    },
+                  ]}
+                />
+              </View>
+
+              <View style={otherstyles.confirmDivider} />
+
+              <View style={otherstyles.confirmDetailBlock}>
+                <Text style={otherstyles.confirmDetailLabel}>Security answer</Text>
+                <TextInput
+                  value={securityAnswer}
+                  onChangeText={setSecurityAnswer}
+                  placeholder="e.g., Blue"
+                  placeholderTextColor="#9CA3AF"
+                  maxLength={50}
+                  autoCapitalize="none"
+                  style={[
+                    otherstyles.confirmDetailValue,
+                    {
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      borderWidth: 1,
+                      borderColor: "#E5E7EB",
+                      borderRadius: 10,
+                      backgroundColor: "#F9FAFB",
+                      marginTop: 8,
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+          </>
+        )}
+
         {/* Notice */}
         <View style={otherstyles.confirmNotice}>
           <View style={otherstyles.confirmNoticeIconWrap}>
-            <Text style={otherstyles.confirmNoticeIcon}>ℹ️</Text>
+            <Text style={otherstyles.confirmNoticeIcon}>{isInterac ? "📧" : "ℹ️"}</Text>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={otherstyles.confirmNoticeTitle}>Transfer timeline</Text>
-            <Text style={otherstyles.confirmNoticeText}>
-              Fees may apply. Transfers typically arrive within 24 hours depending on the bank.
-            </Text>
+            <Text style={otherstyles.confirmNoticeTitle}>{noticeTitle}</Text>
+            <Text style={otherstyles.confirmNoticeText}>{noticeText}</Text>
           </View>
         </View>
 
@@ -326,7 +445,9 @@ export default function RecipientConfirmScreen() {
               <Text style={otherstyles.confirmPrimaryBtnText}>Sending…</Text>
             </View>
           ) : (
-            <Text style={otherstyles.confirmPrimaryBtnText}>Confirm & send</Text>
+            <Text style={otherstyles.confirmPrimaryBtnText}>
+              {isInterac ? "Send Interac e-Transfer" : "Confirm & send"}
+            </Text>
           )}
         </Pressable>
 
@@ -346,7 +467,7 @@ export default function RecipientConfirmScreen() {
         visible={showPinModal}
         onClose={() => setShowPinModal(false)}
         onSuccess={handleConfirmSend}
-        title="Authorize transfer"
+        title={isInterac ? "Authorize Interac transfer" : "Authorize transfer"}
         subtitle="Enter your 4-digit PIN to confirm this transfer"
       />
     </ScreenShell>

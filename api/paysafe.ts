@@ -114,6 +114,8 @@ export interface InteracPayoutRequest {
   recipientEmail: string;
   recipientName: string;
   message?: string;
+  securityQuestion: string;  // ← Added
+  securityAnswer: string; 
 }
 
 export interface InteracPayoutResponse {

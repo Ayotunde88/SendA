@@ -312,7 +312,7 @@ export default function SendMoneyScreen() {
   };
 
   const getPayoutMethodLabel = (dest: PayoutDestination) => {
-    if (dest.code === "CAD") return "Send via EFT Bank Transfer";
+    if (dest.code === "CAD") return "Send via Interac";
     return `Send to ${dest.countryName} bank account`;
   };
 
