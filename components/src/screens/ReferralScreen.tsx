@@ -23,8 +23,10 @@ export default function ReferralScreen() {
         setLoading(false);
         return;
       }
-
-      const result = await getMyReferralCode(token);
+      const phone = await AsyncStorage.getItem('user_phone');
+      if (!token || !phone) return;
+      
+      const result = await getMyReferralCode(token, phone);
 
       if (result.success) {
         setReferralCode(result.referral_code || "");
@@ -55,7 +57,7 @@ export default function ReferralScreen() {
     try {
       await Share.share({
         message: `Join me on Exxsend and get started with easy money transfers! Use my referral code: ${referralCode}\n\n${referralLink}`,
-        title: "Invite Friends to Exxsend",
+        title: 'Invite Friends to Exxsend',
       });
     } catch (error: any) {
       if (error.message !== "User did not share") {

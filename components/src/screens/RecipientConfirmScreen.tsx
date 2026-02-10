@@ -34,6 +34,7 @@ import {
 import { saveRecipientToDB } from "../../../api/sync";
 
 import { sendInteracPayout } from "../../../api/paysafe";
+import { COLORS } from "@/theme/colors";
 
 interface RecipientData {
   accountName: string;
@@ -441,7 +442,7 @@ export default function RecipientConfirmScreen() {
         >
           {sending ? (
             <View style={otherstyles.confirmPrimaryBtnInner}>
-              <ActivityIndicator size="small" color="#fff" style={{ marginRight: 10 }} />
+              <ActivityIndicator size="small" color={COLORS.black} style={{ marginRight: 10 }} />
               <Text style={otherstyles.confirmPrimaryBtnText}>Sending…</Text>
             </View>
           ) : (

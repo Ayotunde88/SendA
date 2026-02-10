@@ -17,9 +17,17 @@ interface TransactionGroup {
 
 const STATUS_FILTERS = ["All", "Completed", "Pending", "Failed"];
 
+// ✅ Make a safe unique key for each tx (handles duplicate references)
+const txKey = (tx: WalletTransaction, idx: number) => {
+  const ref = String((tx as any)?.reference ?? (tx as any)?.id ?? "tx");
+  const created = String((tx as any)?.createdAt ?? (tx as any)?.created_at ?? "");
+  const amt = String((tx as any)?.amount ?? "");
+  return `${ref}__${created}__${amt}__${idx}`;
+};
+
 export default function AllTransactionsScreen() {
   const router = useRouter();
-  
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
@@ -28,33 +36,36 @@ export default function AllTransactionsScreen() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
 
-  const loadTransactions = useCallback(async (refresh = false) => {
-    try {
-      const phone = await AsyncStorage.getItem("user_phone");
-      if (!phone) {
-        setTransactions([]);
-        return;
-      }
-
-      const currentPage = refresh ? 1 : page;
-      const res = await getUserTransactions(phone, currentPage, 50, currencyFilter || undefined);
-
-      if (res.success) {
-        if (refresh) {
-          setTransactions(res.transactions);
-          setPage(1);
-        } else {
-          setTransactions(prev => [...prev, ...res.transactions]);
+  const loadTransactions = useCallback(
+    async (refresh = false) => {
+      try {
+        const phone = await AsyncStorage.getItem("user_phone");
+        if (!phone) {
+          setTransactions([]);
+          return;
         }
-        setHasMore(res.hasNext);
+
+        const currentPage = refresh ? 1 : page;
+        const res = await getUserTransactions(phone, currentPage, 50, currencyFilter || undefined);
+
+        if (res.success) {
+          if (refresh) {
+            setTransactions(res.transactions);
+            setPage(1);
+          } else {
+            setTransactions((prev) => [...prev, ...res.transactions]);
+          }
+          setHasMore(res.hasNext);
+        }
+      } catch (e) {
+        console.error("Failed to load transactions:", e);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
-    } catch (e) {
-      console.error("Failed to load transactions:", e);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [page, currencyFilter]);
+    },
+    [page, currencyFilter]
+  );
 
   useEffect(() => {
     loadTransactions(true);
@@ -69,13 +80,11 @@ export default function AllTransactionsScreen() {
   const groupedTransactions = useMemo(() => {
     let filtered = transactions;
     if (statusFilter !== "All") {
-      filtered = transactions.filter(
-        tx => tx.status.toLowerCase() === statusFilter.toLowerCase()
-      );
+      filtered = transactions.filter((tx) => tx.status.toLowerCase() === statusFilter.toLowerCase());
     }
 
     const groups: Record<string, WalletTransaction[]> = {};
-    
+
     for (const tx of filtered) {
       const date = new Date(tx.createdAt);
       const dateKey = date.toLocaleDateString("en-US", {
@@ -84,10 +93,8 @@ export default function AllTransactionsScreen() {
         day: "numeric",
         year: "numeric",
       });
-      
-      if (!groups[dateKey]) {
-        groups[dateKey] = [];
-      }
+
+      if (!groups[dateKey]) groups[dateKey] = [];
       groups[dateKey].push(tx);
     }
 
@@ -102,13 +109,18 @@ export default function AllTransactionsScreen() {
 
   const getTransactionIcon = (tx: WalletTransaction): string => {
     switch (tx.transactionType) {
-      case "conversion": return "⇄";
+      case "conversion":
+        return "⇄";
       case "payout":
-      case "transfer_out": return "↑";
+      case "transfer_out":
+        return "↑";
       case "deposit":
-      case "transfer_in": return "↓";
-      case "fee": return "💰";
-      default: return "•";
+      case "transfer_in":
+        return "↓";
+      case "fee":
+        return "💰";
+      default:
+        return "•";
     }
   };
 
@@ -123,15 +135,20 @@ export default function AllTransactionsScreen() {
     switch (tx.transactionType) {
       case "conversion":
         return `Convert ${tx.fromCurrency || tx.currency} → ${tx.toCurrency || ""}`;
-      case "payout": return `Sent ${tx.currency}`;
-      case "deposit": return `Received ${tx.currency}`;
-      case "fee": return "Fee";
-      default: return tx.description || tx.transactionType || "Transaction";
+      case "payout":
+        return `Sent ${tx.currency}`;
+      case "deposit":
+        return `Received ${tx.currency}`;
+      case "fee":
+        return "Fee";
+      default:
+        return tx.description || tx.transactionType || "Transaction";
     }
   };
 
   const formatAmount = (tx: WalletTransaction): string => {
-    const isOutgoing = tx.transactionType === "payout" || tx.transactionType === "transfer_out" || tx.amount < 0;
+    const isOutgoing =
+      tx.transactionType === "payout" || tx.transactionType === "transfer_out" || tx.amount < 0;
     const absAmount = Math.abs(tx.amount);
     const formatted = absAmount.toLocaleString("en-US", {
       minimumFractionDigits: 2,
@@ -151,12 +168,16 @@ export default function AllTransactionsScreen() {
 
   const getStatusColor = (status: string): string => {
     switch (status.toLowerCase()) {
-      case "completed": return COLORS.green;
+      case "completed":
+        return COLORS.green;
       case "pending":
-      case "processing": return COLORS.yellow;
+      case "processing":
+        return COLORS.yellow;
       case "failed":
-      case "cancelled": return COLORS.red;
-      default: return COLORS.gray;
+      case "cancelled":
+        return COLORS.red;
+      default:
+        return COLORS.gray;
     }
   };
 
@@ -182,10 +203,7 @@ export default function AllTransactionsScreen() {
           <View style={styles.filtersRow}>
             {STATUS_FILTERS.map((filter) => (
               <Pressable key={filter} onPress={() => setStatusFilter(filter)}>
-                <Pill
-                  title={filter}
-                  active={statusFilter === filter}
-                />
+                <Pill title={filter} active={statusFilter === filter} />
               </Pressable>
             ))}
           </View>
@@ -206,27 +224,27 @@ export default function AllTransactionsScreen() {
               </Text>
             </View>
           ) : (
-            groupedTransactions.map((group, idx) => (
-              <View key={idx} style={{ marginTop: 14, paddingHorizontal: 16 }}>
+            groupedTransactions.map((group) => (
+              // ✅ stable group key (date string is unique per group)
+              <View key={group.date} style={{ marginTop: 14, paddingHorizontal: 16 }}>
                 <Text style={styles.groupDate}>{group.date}</Text>
                 <View style={styles.groupLine} />
 
-                {group.items.map((tx) => (
+                {group.items.map((tx, i) => (
                   <Pressable
-                    key={tx.reference}
+                    // ✅ FIX: unique key even if reference repeats
+                    key={txKey(tx, i)}
                     style={styles.txRow}
                     onPress={() =>
                       router.push({
                         pathname: "/transactiondetail/[reference]",
-                        params: { reference: encodeURIComponent(String(tx.reference)) },
+                        params: { reference: encodeURIComponent(String((tx as any).reference)) },
                       } as any)
                     }
                   >
                     <View style={styles.txLeft}>
                       <View style={styles.txIcon}>
-                        <Text style={{ fontWeight: "900", fontSize: 16 }}>
-                          {getTransactionIcon(tx)}
-                        </Text>
+                        <Text style={{ fontWeight: "900", fontSize: 16 }}>{getTransactionIcon(tx)}</Text>
                       </View>
                       <View>
                         <Text style={styles.txTitle}>{getTransactionTitle(tx)}</Text>
@@ -253,6 +271,7 @@ export default function AllTransactionsScreen() {
                         </View>
                       </View>
                     </View>
+
                     <View style={styles.txRight}>
                       <Text
                         style={[
@@ -278,7 +297,7 @@ export default function AllTransactionsScreen() {
           {hasMore && !loading && (
             <Pressable
               onPress={() => {
-                setPage(p => p + 1);
+                setPage((p) => p + 1);
                 loadTransactions(false);
               }}
               style={{

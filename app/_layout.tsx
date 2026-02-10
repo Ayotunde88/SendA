@@ -17,19 +17,19 @@ function RootLayoutContent() {
 
   // ✅ Any screens you want accessible without token
   // Add BOTH spellings if you ever used a different file name previously.
-  const publicScreens = useMemo(
+  const publicScreens = useMemo<Set<string>>(
     () =>
-      new Set([
-        // "login",
-        // "getstarted",
-        // "resetpassword",
-        // "verifynumber",
-        // "verifyphonenumber", // optional safety if you used this name anywhere
-        // "setpin",
-        // "basicinfo",
-        // "protectpassword",
-        // "globalaccount",
-        // "networkerrorstate",
+      new Set<string>([
+        "login",
+        "getstarted",
+        "resetpassword",
+        "verifynumber",
+        "verifyphonenumber", // optional safety if you used this name anywhere
+        "setpin",
+        "basicinfo",
+        "protectpassword",
+        "globalaccount",
+        "networkerrorstate",
       ]),
     []
   );
@@ -53,15 +53,15 @@ function RootLayoutContent() {
         const isAuthGroup = first === "(auth)";
 
         // ✅ Allow if current route is public (we check leaf, not only first/second)
-        // const isPublic = publicScreens.has(leaf) || publicScreens.has(first);
+        const isPublic = publicScreens.has(leaf) || publicScreens.has(first);
 
         // ✅ If not authenticated, block access to private routes
         // Choose where you want unauth users to land:
         // - "/getstarted" if you want onboarding first
         // - "/login" if you want login first
-        // if (!token && !(isPublic || isAuthGroup)) {
-        //   router.replace("/login");
-        // }
+        if (!token && !(isPublic || isAuthGroup)) {
+          router.replace("/login");
+        }
 
         setAuthChecked(true);
       } catch (e) {
@@ -98,6 +98,9 @@ function RootLayoutContent() {
       <Stack.Screen name="personaverification" options={{ title: "Identity Verification" }} />
       <Stack.Screen name="addaccount" options={{ title: "Add Account" }} />
       <Stack.Screen name="globalaccount" options={{ title: "Global Account" }} />
+      <Stack.Screen name="accountInfo" options={{ title: "Account Information" }} />
+      <Stack.Screen name="userdetails" options={{ title: "User Details" }} />
+      <Stack.Screen name="accountlimit" options={{ title: "Account Limits" }} />
       <Stack.Screen name="security-privacy" options={{ title: "Security and Privacy" }} />
       <Stack.Screen name="setpin" options={{ title: "Set Transaction PIN" }} />
       <Stack.Screen name="get-help" options={{ title: "Get Help" }} />

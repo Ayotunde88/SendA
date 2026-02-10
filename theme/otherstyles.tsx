@@ -294,7 +294,7 @@ primaryBtn: {
     opacity: 0.6,
   },
   confirmPrimaryBtnText: {
-    color: "#fff",
+    color: COLORS.black,
     fontSize: 16,
     fontWeight: "900",
   },

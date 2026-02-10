@@ -3,6 +3,8 @@ import { View, Text, Pressable, StyleSheet } from "react-native";
 import ScreenShell from "../../../../components/ScreenShell";
 import { styles } from "../../../../theme/styles";
 import { router } from "expo-router";
+import { FontAwesome, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { COLORS } from "@/theme/colors";
 
 export default function AddMoneyMethodsScreen() {
   return (
@@ -26,8 +28,8 @@ export default function AddMoneyMethodsScreen() {
         onPress={() => router.push('/addmoneycard')}
       >
         <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <View style={[localStyles.methodIcon, { backgroundColor: "#4F46E5" }]}>
-            <Text style={{ fontSize: 20 }}>💳</Text>
+          <View style={[localStyles.methodIcon, ]}>
+            <Text style={{ fontSize: 20 }}><Ionicons name="card-outline" size={46} color={COLORS.green} style={styles.cardCornerImage} /></Text>
           </View>
           <View style={{ marginLeft: 12, flex: 1 }}>
             <Text style={styles.methodTitle}>Credit / Debit Card</Text>
@@ -64,8 +66,13 @@ export default function AddMoneyMethodsScreen() {
         onPress={() => router.push('/addmoneyeft')}
       >
         <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <View style={[localStyles.methodIcon, { backgroundColor: "#16A34A" }]}>
-            <Text style={{ fontSize: 20 }}>🏦</Text>
+          <View style={[localStyles.methodIcon, ]}>
+            <Text style={{ fontSize: 20 }}><MaterialCommunityIcons
+              name="bank-outline"
+              size={46}
+              color={COLORS.green}
+              style={styles.cardCornerImage}
+            /></Text>
           </View>
           <View style={{ marginLeft: 12, flex: 1 }}>
             <Text style={styles.methodTitle}>Bank Transfer (EFT)</Text>

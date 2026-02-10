@@ -98,14 +98,16 @@ slide: {
     height: 50,
     paddingVertical: 15,
     borderRadius: 999,
-    backgroundColor: "#3457f1ff",
+    borderColor: COLORS.black,
+    borderWidth: 1,
+    // backgroundColor: "#28b085ff",
     // backgroundColor: "#3c3b3bff",
     alignItems: "center",
     justifyContent: "center",
     marginTop: 20,
   },
   primaryBtnText: {
-    color: "#fff",
+    color: COLORS.black,
     fontSize: 18,
     fontWeight: "500",
   },
@@ -175,8 +177,9 @@ slide: {
 
   outlineBtn: {
     width: "100%",
-    borderWidth: 2,
-    borderColor: COLORS.green,
+    borderWidth: 1,
+    borderColor: COLORS.black,
+    // borderColor: COLORS.green,
     paddingVertical: 10,
     marginBottom: -20,
     height: 50,
@@ -185,7 +188,7 @@ slide: {
     alignItems: "center",
     backgroundColor: "transparent",
   },
-  outlineBtnText: { color: COLORS.green, fontWeight: "600", fontSize: 16 },
+  outlineBtnText: { color: COLORS.black, fontWeight: "600", fontSize: 16 },
 
   moreCircle: {
     marginLeft: 12,
@@ -388,7 +391,7 @@ slide: {
   walletAmount: { marginTop: 10, fontSize: 34, fontWeight: "500" },
   limitsPill: { flexDirection: "row", alignItems: "center", backgroundColor: "#EFEDEB", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, marginTop: 12 },
   walletActionRow: { flexDirection: "row", gap: 18, marginTop: 16 },
-  walletActionCircle: { width: 54, height: 54, borderRadius: 27, backgroundColor: COLORS.green, justifyContent: "center", alignItems: "center" },
+  walletActionCircle: { borderColor: COLORS.black, borderWidth: 1, width: 54, height: 54, borderRadius: 27, backgroundColor: "transparent", justifyContent: "center", alignItems: "center", },
 
   pillTabs: { flexDirection: "row", backgroundColor: "#EAE6E3", borderRadius: 999, padding: 4, marginTop: 16, width: "100%" },
   pillTab: { flex: 1, paddingVertical: 10, borderRadius: 999, alignItems: "center" },
@@ -703,7 +706,7 @@ countryDial: {
 accountCardGradient: {
   width: 210,
   height: 140,
-  borderRadius: 10,
+  borderRadius: 15,
   padding: 20,
   position: "relative", 
   overflow: "hidden",
@@ -719,6 +722,7 @@ accountLabelWhite: {
   fontWeight: "500",
   color: "#FFFFFF",
   fontSize:20,
+  margin:4,
 },
 
 accountAmountWhite: {
@@ -876,7 +880,7 @@ bigBtn: {
 },
 
 bigBtnText: {
-  color: "#fff",
+  color: COLORS.black,
   fontSize: 18,
   fontWeight: "500",
 },
@@ -1574,12 +1578,12 @@ addAccountPill: {
   paddingVertical: 8,
   marginTop: 12,
   borderWidth: 1,
-  borderColor: COLORS.green,
+  borderColor: COLORS.black,
 },
 
 addAccountIcon: {
   fontSize: 18,
-  color: COLORS.green,
+  color: COLORS.black,
   fontWeight: "600",
   marginRight: 6,
 },
@@ -1587,7 +1591,7 @@ addAccountIcon: {
 addAccountText: {
   fontSize: 15,
   fontWeight: "700",
-  color: COLORS.green,
+  color: COLORS.black,
 },
 
 trigger: {
@@ -1985,12 +1989,13 @@ accountCardShadow: {
 
 cardCornerImage: {
   position: "absolute",
-  right: -35,   // tweak for visual style
-  bottom: -30,  // tweak for visual style
-  width: 90,
-  height: 90,
+  right: 0,   // tweak for visual style
+  bottom: 50,  // tweak for visual style
+  width: 60,
+  height: 70,
   opacity: 1, // optional (fintech look)
   zIndex: 1,
+
 },
 
 
@@ -3319,7 +3324,7 @@ headerRow: {
     marginTop: 14,
   },
   primaryBtnText: {
-    color: "#fff",
+    color: COLORS.black,
     fontWeight: "600",
     fontSize: 16,
   },
@@ -3679,8 +3684,12 @@ recentEmptyBtnText: {
 referralBanner: {
   width: "93%",
   margin: 12,
-  backgroundColor: "#28b085ff",
+  backgroundColor: "#fff",
+  // backgroundColor: COLORS.yellow,
+  // backgroundColor: "#28b085ff",
   borderRadius: 10,
+  borderColor: COLORS.black,
+  borderWidth: 1,
   padding: 16,
   flexDirection: "row",
   alignItems: "center",
@@ -3711,12 +3720,12 @@ referralIconWrap: {
 referralTitle: {
   fontSize: 15,
   fontWeight: "800",
-  color: "#ffffffff",
+  color: COLORS.black,
 },
 
 referralSubtitle: {
   fontSize: 13,
-  color: "#ffffffff",
+  color: COLORS.black,
   marginTop: 2,
 },
 

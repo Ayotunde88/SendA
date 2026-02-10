@@ -1376,7 +1376,7 @@ export default function HomeScreen() {
                       <View
                         style={[
                           styles.accountCardGradient,
-                          { backgroundColor: "#3457f1ff", borderWidth: 1, borderColor: "rgba(255,255,255,0.18)" },
+                          { backgroundColor: "#28b085ff", borderWidth: 1, borderColor: "rgba(16, 11, 11, 0.18)" },
                         ]}
                       >
                         {walletDisabled ? (
@@ -1418,11 +1418,12 @@ export default function HomeScreen() {
                           <Text style={styles.accountAmountWhite}>{formatBalance(displayBalance)}</Text>
                         )}
 
-                        <Image
+                        {/* <Image
                           source={require("../../../assets/images/icons/coins.png")}
                           style={styles.cardCornerImage}
                           resizeMode="contain"
-                        />
+                        /> */}
+                        <Ionicons name="wallet-outline" size={46} color="#fff" style={styles.cardCornerImage} />
                       </View>
                     </Pressable>
                   );
@@ -1436,9 +1437,9 @@ export default function HomeScreen() {
                     width: 210,
                     height: 140,
                     borderRadius: 16,
-                    backgroundColor: "transparent",
+                    backgroundColor: "#fff",
                     borderWidth: 1,
-                    borderColor: COLORS.green,
+                    borderColor: COLORS.black,
                     justifyContent: "center",
                     alignItems: "center",
                     shadowColor: "#000",
@@ -1459,10 +1460,10 @@ export default function HomeScreen() {
                       marginBottom: 8,
                     }}
                   >
-                    <Ionicons name="add" size={32} color={COLORS.primary} />
+                    <Ionicons name="add" size={32} color={COLORS.black} />
                   </View>
 
-                  <Text style={{ fontSize: 14, fontWeight: "900", color: COLORS.primary }}>Add wallet</Text>
+                  <Text style={{ fontSize: 14, fontWeight: "900", color: COLORS.black }}>Add wallet</Text>
                 </View>
               </Pressable>
             </ScrollView>
@@ -1473,7 +1474,7 @@ export default function HomeScreen() {
             <PrimaryButton
               title={
                 <Text style={{ fontWeight: "600" }}>
-                  <Ionicons name="arrow-forward" size={16} color="#fff" /> Transfer Now
+                  <Ionicons name="arrow-forward" size={16} color={COLORS.black} /> Transfer Now
                 </Text> as any
               }
               onPress={() => (isKycApproved ? router.push("/sendmoney") : handleBlockedAction())}
@@ -1481,8 +1482,8 @@ export default function HomeScreen() {
             />
             <OutlineButton
               title={
-                <Text style={{ fontWeight: "600", color: COLORS.primary }}>
-                  <Ionicons name="add" size={16} color={COLORS.primary} /> Add Money
+                <Text style={{ fontWeight: "600", color: COLORS.black }}>
+                  <Ionicons name="add" size={16} color={COLORS.black} /> Add Money
                 </Text> as any
               }
               onPress={() => (isKycApproved ? setSheetOpen(true) : handleBlockedAction())}

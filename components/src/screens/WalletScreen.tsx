@@ -549,13 +549,16 @@ export default function WalletScreen() {
     }
   }, [account?.currencyCode]);
 
+
+    const initialLoadDoneRef = useRef(false);
   // ✅ Initial load once account is ready
   useEffect(() => {
     if (!account?.currencyCode) return;
-
+      if (initialLoadDoneRef.current) return;
+          initialLoadDoneRef.current = true;
     (async () => {
       await refreshPendingSettlements();
-      await refreshBalance();
+      // await refreshBalance();
 
       if (isNGN) {
         await Promise.all([fetchNGNTransactions({ silent: false }), fetchWalletTransactions({ silent: false })]);

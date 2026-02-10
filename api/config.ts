@@ -338,14 +338,14 @@ export async function setPassword(phone: string, password: string) {
   return res.json();
 }
 
-export async function getMyReferralCode(token: string): Promise<{
+export async function getMyReferralCode(token: string, phone: string): Promise<{
   success: boolean;
   referral_code?: string;
   referral_link?: string;
   message?: string;
 }> {
   try {
-    const res = await fetch(`${API_BASE_URL}/referrals/my-code`, {
+    const res = await fetch(`${API_BASE_URL}/referrals/my-code?phone=${encodeURIComponent(phone)}`, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
@@ -585,7 +585,34 @@ export async function saveUserAddress(payload: {
 
 export async function getUserProfile(phone: string): Promise<{
   success: boolean;
-  user?: any;
+  user?: {
+    first_name: string;
+    baseCurrency: any;
+    homeCurrencySymbol: any;
+    homeCurrency: any;
+    country: any;
+    countryCode: any;
+    id: string;
+    phone: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    kycStatus: string;
+    status: string;
+    onboardingStep: string;
+    // Address fields
+    dateOfBirth?: string;
+    dob?: string;
+    street?: string;
+    buildingOrHouse?: string;
+    apartment?: string;
+    city?: string;
+    stateOrProvince?: string;
+    province?: string;
+    region?: string;
+    postalCode?: string;
+    countryName?: string;
+  };
   message?: string;
   code?: string;
   isNetworkError?: boolean;
@@ -1070,11 +1097,13 @@ export const executeConversion = async (
               message: statusData.message || `Converted ${sellCurrency} to ${buyCurrency}`,
               conversion: statusData.conversion,
               updatedBalances: statusData.updatedBalances,
+              balanceUpdatePending: statusData.balanceUpdatePending ?? statusData.balance_update_pending ?? false,
             };
           } else if (statusData.status === 'failed') {
             return {
               success: false,
               message: statusData.message || 'Conversion failed',
+              balanceUpdatePending: statusData.balanceUpdatePending ?? statusData.balance_update_pending ?? false,
             };
           }
         } catch (pollError) {
@@ -1088,22 +1117,29 @@ export const executeConversion = async (
         status: 'processing',
         message: 'Conversion is being processed. Please check your balance in a moment.',
         conversion: data.conversion,
+        balanceUpdatePending: data?.balanceUpdatePending ?? data?.balance_update_pending ?? false,
       };
     }
     
-    return data;
+    // Ensure returned data contains balanceUpdatePending to satisfy the return type
+    return {
+      ...(data || {}),
+      balanceUpdatePending: data?.balanceUpdatePending ?? data?.balance_update_pending ?? false,
+    };
     
   } catch (error: any) {
     if (error.name === 'AbortError') {
       return {
         success: false,
         message: 'The conversion is taking longer than expected. Please check your balance - it may have completed.',
+        balanceUpdatePending: false,
       };
     }
     
     return {
       success: false,
       message: error.message || 'Network error during conversion',
+      balanceUpdatePending: false,
     };
   }
 };

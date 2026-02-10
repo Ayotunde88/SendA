@@ -568,7 +568,7 @@ ${tx.feeAmount && tx.feeAmount > 0 ? `
               disabled={generatingPdf}
               style={styles.outlineBtn}
             >
-              <Text style={{ color: COLORS.green, fontWeight: "700", fontSize: 16 }}>
+              <Text style={{ color: COLORS.black, fontWeight: "700", fontSize: 16 }}>
                 Download Receipt
               </Text>
             </Pressable>
@@ -578,7 +578,7 @@ ${tx.feeAmount && tx.feeAmount > 0 ? `
               disabled={generatingPdf}
               style={styles.primaryBtn}
             >
-              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>
+              <Text style={{ color: COLORS.black, fontWeight: "700", fontSize: 16 }}>
                 Share Receipt
               </Text>
             </Pressable>

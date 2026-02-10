@@ -28,6 +28,7 @@ import {
 } from "../../../api/config";
 import FeeBreakdown, { FeeInfo } from "../../../components/FeeBreakdown";
 import CountryFlag from "../../../components/CountryFlag";
+import { COLORS } from "@/theme/colors";
 
 // ------------------------------------------------------------
 // Country code normalization (fixes your countryCode errors)
@@ -80,6 +81,8 @@ const QuickAmountButton = ({
       paddingVertical: 8,
       backgroundColor: disabled ? "#E0E0E0" : "#F0F0F0",
       borderRadius: 16,
+      borderWidth: 1,
+      borderColor: disabled ? "#B3B3B3" : COLORS.black,
       marginRight: 8,
       opacity: disabled ? 0.5 : 1,
     }}
@@ -391,7 +394,7 @@ export default function SendMoneyScreen() {
 
           {/* FROM */}
           <View style={styles.convertBox}>
-            <Text style={{ color: "#2E9E6A", fontWeight: "900" }}>You send</Text>
+            <Text style={{ color: COLORS.black, fontWeight: "900" }}>You send</Text>
             <View style={styles.convertRow}>
               <TextInput
                 value={fromAmount}
@@ -443,7 +446,7 @@ export default function SendMoneyScreen() {
 
           {/* TO */}
           <View style={styles.convertBox}>
-            <Text style={{ color: "#2E9E6A", fontWeight: "900" }}>
+            <Text style={{ color: COLORS.black, fontWeight: "900" }}>
               Recipient gets ({selectedDestination?.code || "Select"})
             </Text>
             <View style={styles.convertRow}>
@@ -485,7 +488,7 @@ export default function SendMoneyScreen() {
             onPress={handleContinue}
             disabled={!canContinue}
           >
-            <Text style={{ color: canContinue ? "#fff" : "#B3B3B3", fontWeight: "900", fontSize: 18 }}>
+            <Text style={{ color: canContinue ? COLORS.black : "#B3B3B3", fontWeight: "900", fontSize: 18 }}>
               Continue
             </Text>
           </Pressable>

@@ -1,9 +1,10 @@
-import React from "react";
-import { View, Text, Pressable } from "react-native";
+import React, { useEffect, useState } from "react";
+import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
-import { styles } from "../../../theme/styles";
+import { styles } from "../../../../../theme/styles";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { getUserProfile } from "../../../../../api/config";
 
 interface MenuRowProps {
   iconBg: string;
@@ -34,6 +35,46 @@ function MenuRow({ iconBg, icon, title, subtitle, right, color, onPress }: MenuR
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const [userInfo, setUserInfo] = useState<{
+    fullName: string;
+    email: string;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadUserProfile = async () => {
+      try {
+        // First try to get from local storage (fast)
+        const storedUser = await AsyncStorage.getItem("user_info");
+        if (storedUser) {
+          const parsed = JSON.parse(storedUser);
+          setUserInfo({
+            fullName: `${parsed.firstName || ''} ${parsed.lastName || ''}`.trim() || 'User',
+            email: parsed.email || '',
+          });
+        }
+
+        // Then fetch fresh data from backend
+        const phone = await AsyncStorage.getItem("user_phone");
+        if (phone) {
+          const result = await getUserProfile(phone);
+          if (result.success && result.user) {
+            const { firstName, lastName, email } = result.user;
+            setUserInfo({
+              fullName: `${firstName || ''} ${lastName || ''}`.trim() || 'User',
+              email: email || '',
+            });
+          }
+        }
+      } catch (e) {
+        console.log("Error loading user profile:", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadUserProfile();
+  }, []);
 
   const logout = async () => {
     try {
@@ -117,11 +158,17 @@ export default function ProfileScreen() {
           </View>
 
           <View style={{ alignItems: "center" }}>
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Text style={styles.profileName}>Ayotunde Balogun</Text>
-              <Text style={styles.greenCheck}> ✓</Text>
-            </View>
-            <Text style={styles.profileEmail}>ayotundebalogun2@gmail.com</Text>
+            {loading ? (
+              <ActivityIndicator size="small" color="#6B7280" />
+            ) : (
+              <>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Text style={styles.profileName}>{userInfo?.fullName || 'User'}</Text>
+                  <Text style={styles.greenCheck}> ✓</Text>
+                </View>
+                <Text style={styles.profileEmail}>{userInfo?.email || ''}</Text>
+              </>
+            )}
           </View>
         </View>
 
@@ -131,6 +178,7 @@ export default function ProfileScreen() {
           icon="👤"
           title="Account information"
           subtitle="Information about your account"
+          onPress={() => router.push("/accountInfo")}
         />
 
         <MenuRow

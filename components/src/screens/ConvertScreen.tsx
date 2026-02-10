@@ -31,6 +31,7 @@ import { addPendingSettlement, usePendingSettlements, clearPendingForCurrency } 
 import FeeBreakdown, { FeeInfo } from "../../../components/FeeBreakdown";
 import CountryFlag from "../../../components/CountryFlag";
 import { userScopedKey } from "../../../utils/cacheKeys";
+import { COLORS } from "@/theme/colors";
 
 // ✅ FIX: extend Wallet locally to include countryCode (API may return it)
 type WalletWithCountry = Wallet & { countryCode?: string; country_code?: string };
@@ -102,6 +103,8 @@ const QuickAmountButton = ({
       paddingVertical: 8,
       backgroundColor: disabled ? "#E0E0E0" : "#F0F0F0",
       borderRadius: 16,
+      borderWidth: 1,
+      borderColor: disabled ? "#B3B3B3" : COLORS.black,
       marginRight: 8,
       opacity: disabled ? 0.5 : 1,
     }}
@@ -791,7 +794,7 @@ export default function ConvertScreen() {
 
           {/* FROM */}
           <View style={styles.convertBox}>
-            <Text style={{ color: "#2E9E6A", fontWeight: "900" }}>You are converting</Text>
+            <Text style={{ color: COLORS.black, fontWeight: "900" }}>You are converting</Text>
             <View style={styles.convertRow}>
               <TextInput
                 value={fromAmount}
@@ -843,7 +846,7 @@ export default function ConvertScreen() {
 
           {/* TO */}
           <View style={styles.convertBox}>
-            <Text style={{ color: "#2E9E6A", fontWeight: "900" }}>To</Text>
+            <Text style={{ color: COLORS.black, fontWeight: "900" }}>To</Text>
             <View style={styles.convertRow}>
               <TextInput
                 value={quoteLoading ? "..." : toAmount}
@@ -877,7 +880,7 @@ export default function ConvertScreen() {
 
           {/* Convert Button */}
           <Pressable style={!canConvert ? styles.disabledBigBtn : styles.primaryBtn} onPress={handleConvert} disabled={!canConvert || converting}>
-            {converting ? <ActivityIndicator color="#fff" /> : <Text style={{ color: canConvert ? "#fff" : "#B3B3B3", fontWeight: "900", fontSize: 18 }}>Convert</Text>}
+            {converting ? <ActivityIndicator color={COLORS.black} /> : <Text style={{ color: canConvert ? COLORS.black : "#B3B3B3", fontWeight: "900", fontSize: 18 }}>Convert</Text>}
           </Pressable>
 
           {FromPickerModal}

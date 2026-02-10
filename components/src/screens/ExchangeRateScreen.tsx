@@ -440,7 +440,7 @@ export default function ExchangeRatesScreen() {
           {/* Quick action */}
           <View style={{ paddingHorizontal: 16, marginTop: 14 }}>
             <Pressable onPress={() => router.push("/convert")} style={styles.primaryBtn}>
-              <Text style={{ color: "#fff", fontWeight: "900", fontSize: 16 }}>Convert currency</Text>
+              <Text style={{ color: COLORS.black, fontWeight: "900", fontSize: 16 }}>Convert currency</Text>
             </Pressable>
           </View>
         </ScrollView>
