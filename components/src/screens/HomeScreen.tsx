@@ -78,6 +78,11 @@ type UserAccount = {
   balance?: number | null;
   iban?: string;
   bicSwift?: string;
+  accountNumber: string;
+  routingNumber: string;
+  sortCode: string;
+  bankName: string;
+  bankAddress: string;
   status?: string;
   isExotic?: boolean;
   is_exotic?: boolean;
@@ -1363,6 +1368,11 @@ export default function HomeScreen() {
                               accountName: a.accountName,
                               iban: a.iban,
                               bicSwift: a.bicSwift,
+                              accountNumber: a.accountNumber,
+                              routingNumber: a.routingNumber,
+                              sortCode: a.sortCode,
+                              bankName: a.bankName,
+                              bankAddress: a.bankAddress,
                               status: a.status,
                               balance: a.balance,
                               flag: getFlagForCurrency(a.currencyCode),

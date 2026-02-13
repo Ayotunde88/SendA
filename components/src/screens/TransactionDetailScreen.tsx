@@ -476,14 +476,14 @@ ${tx.feeAmount && tx.feeAmount > 0 ? `
                 {transaction.reference}
               </Text>
             </View>
-            {transaction.externalReference && (
+            {/* {transaction.externalReference && (
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Provider Ref</Text>
                 <Text style={[styles.detailValue, { fontFamily: "monospace" }]}>
                   {transaction.externalReference}
                 </Text>
               </View>
-            )}
+            )} */}
             {/* {transaction.provider && (
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Provider</Text>

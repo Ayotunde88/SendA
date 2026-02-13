@@ -116,7 +116,7 @@ export default function CountryDropdown({ value, onChange }: Props) {
                   ]}
                   onPress={() => handleSelect(item)}
                 >
-                  <CountryFlag countryCode={item.code} fallbackEmoji={item.flag ?? "🏳️"} size="lg" />
+                  <CountryFlag countryCode={item.code} fallbackEmoji={item.flag ?? "🏳️"} size="md" />
                   <View style={styles.itemInfo}>
                     <Text style={styles.itemName}>{item.name}</Text>
                     <Text style={styles.itemDialCode}>{item.dialCode ?? ""}</Text>

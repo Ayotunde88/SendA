@@ -337,7 +337,7 @@ export default function AccountLimitsScreen() {
             {/* Modal Header */}
             <View style={m.modalHeader}>
               <View style={m.headerLeft}>
-                <CountryFlag currencyCode={selectedCurrency} size="lg" />
+                <CountryFlag currencyCode={selectedCurrency} size="md" />
                 <Text style={m.modalTitle}>{selectedCurrency} Limits</Text>
               </View>
               <Pressable onPress={closeModal} style={m.closeBtn}>

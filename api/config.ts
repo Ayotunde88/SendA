@@ -954,6 +954,14 @@ export async function getUserWallets(phone: string): Promise<{
             formattedBalance:
               w.formatted_balance || w.formattedBalance || (balance === null ? "" : `${balance}`),
             status: w.status || "active",
+            accountName: w.account_name || w.accountName || '',
+            iban: w.iban || '',
+            bicSwift: w.bic_swift || w.bicSwift || '',
+            accountNumber: w.account_number || w.accountNumber || '',
+            routingNumber: w.routing_number || w.routingNumber || '',
+            sortCode: w.sort_code || w.sortCode || '',
+            bankName: w.bank_name || w.bankName || '',
+            bankAddress: w.bank_address || w.bankAddress || '',
           };
         }),
       };

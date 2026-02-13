@@ -440,3 +440,71 @@ export function isValidTransitNumber(num: string): boolean {
 export function isValidAccountNumber(num: string): boolean {
   return /^\d{5,12}$/.test(num);
 }
+
+export interface InteracRegisterRequest {
+  phone: string;
+  email: string;
+  name: string;
+}
+
+export interface InteracRegisterResponse {
+  success: boolean;
+  message?: string;
+  registered?: boolean;
+  email?: string;
+}
+
+export interface InteracStatusResponse {
+  success: boolean;
+  registered?: boolean;
+  email?: string;
+  message?: string;
+}
+
+export interface InteracRegistrationAPI {
+  registerForInterac(request: InteracRegisterRequest): Promise<InteracRegisterResponse>;
+  getInteracStatus(phone: string): Promise<InteracStatusResponse>;
+}
+
+// ============ Interac Registration API ============
+export async function registerForInterac(request: InteracRegisterRequest): Promise<InteracRegisterResponse> {
+  try {
+    console.log('[Paysafe] Registering for Interac e-Transfer:', { email: request.email });
+
+    const response = await fetch(`${API_BASE_URL}/paysafe/interac-register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+
+    const text = await response.text();
+    if (!text) {
+      return { success: false, message: 'No response from server.' };
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { success: false, message: 'Invalid response from server.' };
+    }
+  } catch (error) {
+    console.error('[Paysafe] Interac registration error:', error);
+    return { success: false, message: 'Failed to register. Please check your network connection.' };
+  }
+}
+
+export async function getInteracStatus(phone: string): Promise<InteracStatusResponse> {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/paysafe/interac-status?phone=${encodeURIComponent(phone)}`
+    );
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('[Paysafe] Interac status check error:', error);
+    return { success: false, message: 'Failed to check registration status.' };
+  }
+}
+
+
+  

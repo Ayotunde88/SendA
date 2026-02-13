@@ -40,32 +40,19 @@ function RootLayoutContent() {
     const checkAuth = async () => {
       try {
         const token = await AsyncStorage.getItem("auth_token");
-
-        // segments examples:
-        // ["(tabs)"]
-        // ["(auth)", "getstarted"]
-        // ["(auth)", "verifynumber"]
-        // ["withdraw"] etc
-        const first = String(segments?.[0] ?? "");
+    
         const leaf = String(segments?.[segments.length - 1] ?? "");
-
-        // ✅ If you are using a route group for auth like "(auth)", allow that group too
-        const isAuthGroup = first === "(auth)";
-
-        // ✅ Allow if current route is public (we check leaf, not only first/second)
-        const isPublic = publicScreens.has(leaf) || publicScreens.has(first);
-
-        // ✅ If not authenticated, block access to private routes
-        // Choose where you want unauth users to land:
-        // - "/getstarted" if you want onboarding first
-        // - "/login" if you want login first
-        if (!token && !(isPublic || isAuthGroup)) {
+    
+        const isPublic = publicScreens.has(leaf);
+    
+        // 🚨 Block only if route is private
+        if (!token && !isPublic) {
           router.replace("/login");
+          return;
         }
-
+    
         setAuthChecked(true);
       } catch (e) {
-        // If AsyncStorage fails, treat as logged out
         router.replace("/getstarted");
         setAuthChecked(true);
       }
@@ -102,6 +89,7 @@ function RootLayoutContent() {
       <Stack.Screen name="userdetails" options={{ title: "User Details" }} />
       <Stack.Screen name="accountlimit" options={{ title: "Account Limits" }} />
       <Stack.Screen name="security-privacy" options={{ title: "Security and Privacy" }} />
+      <Stack.Screen name="support" options={{ title: "Support" }} />
       <Stack.Screen name="setpin" options={{ title: "Set Transaction PIN" }} />
       <Stack.Screen name="get-help" options={{ title: "Get Help" }} />
       <Stack.Screen name="protectpassword" options={{ title: "Protect Password" }} />

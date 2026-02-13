@@ -572,7 +572,7 @@ export default function SendMoneyScreen() {
                         <CountryFlag
                           currencyCode={item.currencyCode}
                           fallbackEmoji={(item as any)?.flag}
-                          size="lg"
+                          size="md"
                           style={{ marginRight: 12 }}
                         />
                         <View style={{ flex: 1 }}>
@@ -665,7 +665,7 @@ export default function SendMoneyScreen() {
                       <CountryFlag
                         currencyCode={item.code}
                         fallbackEmoji={(item as any)?.flag}
-                        size="lg"
+                        size="md"
                         style={{ marginRight: 12 }}
                       />
                       <View style={{ flex: 1 }}>

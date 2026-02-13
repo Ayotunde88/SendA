@@ -960,7 +960,7 @@ export default function WalletScreen() {
           </View>
         )}
 
-        <CountryFlag currencyCode={account.currencyCode} fallbackEmoji={account.flag} size="xl" style={{ marginBottom: 8 }} />
+        <CountryFlag currencyCode={account.currencyCode} fallbackEmoji={account.flag} size="lg" style={{ marginBottom: 8 }} />
         <Text style={styles.walletTitle}>{account.currencyCode} balance</Text>
 
         {/* ✅ Balance: skeleton only (no ActivityIndicator) */}
@@ -989,8 +989,12 @@ export default function WalletScreen() {
         <View style={styles.walletActionRow}>
           <WalletAction icon="↑" label="Send" onPress={() => router.push(`/sendmoney?from=${account.currencyCode}`)} />
           <WalletAction icon="＋" label="Add" onPress={() => router.push("/addmoneymethods")} />
-          <WalletAction icon="－" label="Withdraw" onPress={() => router.push(`/withdraw?currency=${account.currencyCode}`)} />
           <WalletAction icon="↻" label="Convert" onPress={() => router.push(`/convert?from=${account.currencyCode}`)} />
+          <WalletAction 
+              icon="↓" 
+              label="Request" 
+              onPress={() => router.push(`/request?currency=${account.currencyCode}`)} 
+            />
         </View>
 
         <View style={styles.pillTabs}>
@@ -1006,14 +1010,14 @@ export default function WalletScreen() {
               style={[styles.pillTab, tab === "Account" && styles.pillTabActive]}
               onPress={() => setTab("Account")}
             >
-              <Text style={[styles.pillTabText, tab === "Account" && styles.pillTabTextActive]}>Account details</Text>
+              <Text style={[styles.pillTabText, tab === "Account" && styles.pillTabTextActive]}>Account Details</Text>
             </Pressable>
           ) : (
             <Pressable
               style={[styles.pillTab, tab === "Account" && styles.pillTabActive]}
               onPress={() => setTab("Account")}
             >
-              <Text style={[styles.pillTabText, tab === "Account" && styles.pillTabTextActive]}>Account details</Text>
+              <Text style={[styles.pillTabText, tab === "Account" && styles.pillTabTextActive]}>Account Details</Text>
             </Pressable>
           )}
         </View>
@@ -1023,7 +1027,7 @@ export default function WalletScreen() {
         <View>{renderTransactionsList()}</View>
       ) : (
         <View style={{ marginTop: 18 }}>
-          <Text style={styles.sectionTitle}>Account details</Text>
+          <Text style={styles.sectionTitle}>Account Details</Text>
           <View style={styles.detailsCard}>
             <DetailRow k="Account name" v={account.accountName || "—"} />
             <DetailRow k="Currency" v={`${account.currencyName} (${account.currencyCode})`} />

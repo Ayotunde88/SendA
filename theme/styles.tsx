@@ -1672,6 +1672,7 @@ trigger: {
   },
   itemInfo: {
     flex: 1,
+    margin: 10,
   },
   itemName: {
     fontSize: 16,
@@ -3326,7 +3327,7 @@ headerRow: {
   primaryBtnText: {
     color: COLORS.black,
     fontWeight: "600",
-    fontSize: 16,
+    fontSize: 15,
   },
  
 

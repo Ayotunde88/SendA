@@ -586,7 +586,7 @@ export default function ConvertScreen() {
                     setFromSearch("");
                   }}
                 >
-                  <CountryFlag currencyCode={item.currencyCode} fallbackEmoji={(item as any)?.flag} size="lg" style={{ marginRight: 12 }} />
+                  <CountryFlag currencyCode={item.currencyCode} fallbackEmoji={(item as any)?.flag} size="md" style={{ marginRight: 12 }} />
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 16, fontWeight: "600", color: "#1F2937" }}>{item.currencyCode}</Text>
                     <Text style={{ fontSize: 13, color: "#6B7280" }}>
@@ -672,7 +672,7 @@ export default function ConvertScreen() {
                     setToSearch("");
                   }}
                 >
-                  <CountryFlag currencyCode={item.currencyCode} fallbackEmoji={(item as any)?.flag} size="lg" style={{ marginRight: 12 }} />
+                  <CountryFlag currencyCode={item.currencyCode} fallbackEmoji={(item as any)?.flag} size="md" style={{ marginRight: 12 }} />
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 16, fontWeight: "600", color: "#1F2937" }}>{item.currencyCode}</Text>
                     <Text style={{ fontSize: 13, color: "#6B7280" }}>
@@ -737,7 +737,7 @@ export default function ConvertScreen() {
                     opacity: wallet.status === "active" ? 1 : 0.6,
                   }}
                 >
-                  <CountryFlag currencyCode={wallet.currencyCode} fallbackEmoji={(wallet as any).flag} size="lg" style={{ marginRight: 12 }} />
+                  <CountryFlag currencyCode={wallet.currencyCode} fallbackEmoji={(wallet as any).flag} size="md" style={{ marginRight: 12 }} />
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 16, fontWeight: "600", color: "#333" }}>{(wallet as any).currencyName}</Text>
                     <Text style={{ fontSize: 14, color: "#666" }}>
