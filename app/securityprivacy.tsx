@@ -1,2 +1,2 @@
-import SecurityPrivacyScreen from "../components/src/screens/SecurityPrivacyScreen";
+import SecurityPrivacyScreen from "../components/src/screens/settings/SecurityAndPrivacyScreen";
 export default SecurityPrivacyScreen;

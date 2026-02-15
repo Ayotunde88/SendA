@@ -318,7 +318,15 @@ slide: {
   // Transactions list
   groupDate: { fontWeight: "600", color: "#2D2D2D" },
   groupLine: { height: 1, backgroundColor: COLORS.line, marginTop: 10 },
-  txRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 14 },
+  txRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 14,
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    marginTop: 12,
+  },
   txLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
   txIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: "#F0F0F0", justifyContent: "center", alignItems: "center" },
   txTitle: { fontWeight: "500" },
@@ -328,8 +336,22 @@ slide: {
   txSubAmt: { marginTop: 2, color: COLORS.muted, fontWeight: "700" },
 
   // Simple pills
-  filtersRow: { flexDirection: "row", gap: 10, marginTop: 4,padding: 12 },
-  filterPill: { backgroundColor: "#EDEAE7", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999 },
+  filtersRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
+    padding: 12,
+    
+  },
+  filterPill: {
+    backgroundColor: "#EDEAE7",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.black,
+   },
+
   filterPillActive: { backgroundColor: "#1E1E1E" },
   filterText: { fontWeight: "600", color: "#4B4B4B" },
   filterTextActive: { color: "#fff" },
@@ -509,7 +531,7 @@ slide: {
   chev: { fontSize: 18, color: "#9B9B9B", fontWeight: "500" },
 
   // ===== Recipient details =====
-  inputLabel: { fontWeight: "600", color: "#6F6F6F" },
+  inputLabel: { fontWeight: "600", color: "#6F6F6F", marginBottom: 12, marginTop: 12 },
   dropdown: {
     marginTop: 10,
     height: 56,
@@ -2075,10 +2097,13 @@ fxPair: {
   fontSize: 14,
   fontWeight: "600",
   color: "#1E1E1E",
+  margin: 25,
 },
 
 fxPairSub: {
-  marginTop: 4,
+  margin: 25,
+  marginTop: -10,
+  marginBottom: -7,
   fontSize: 12,
   fontWeight: "500",
   color: "rgba(0,0,0,0.45)",

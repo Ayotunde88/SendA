@@ -52,7 +52,7 @@ export default function SupportScreen() {
   const handleChatPress = useCallback(async () => {
     try {
       // If you have an in-app chat screen
-      router.push("/supportchat");
+      router.push("/chatsupport");
     } catch {
       try {
         const canOpen = await Linking.canOpenURL(SUPPORT_CHAT_URL);
@@ -167,14 +167,14 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: "center",
     fontSize: 16,
-    fontWeight: "900",
+    fontWeight: "600",
     color: "#111827",
   },
 
   title: {
     marginTop: 8,
     fontSize: 22,
-    fontWeight: "900",
+    fontWeight: "600",
     color: "#111827",
   },
   subtitle: {
@@ -228,7 +228,7 @@ const styles = StyleSheet.create({
 
   optionTitle: {
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "600",
     color: "#111827",
   },
 

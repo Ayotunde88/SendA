@@ -29,7 +29,7 @@ export default function AddMoneyMethodsScreen() {
       >
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           <View style={[localStyles.methodIcon, ]}>
-            <Text style={{ fontSize: 20 }}><Ionicons name="card-outline" size={46} color={COLORS.green} style={styles.cardCornerImage} /></Text>
+            <Text style={{ fontSize: 20 }}><Ionicons name="card-outline" size={46} color={COLORS.black} style={styles.cardCornerImage} /></Text>
           </View>
           <View style={{ marginLeft: 12, flex: 1 }}>
             <Text style={styles.methodTitle}>Credit / Debit Card</Text>
@@ -70,7 +70,7 @@ export default function AddMoneyMethodsScreen() {
             <Text style={{ fontSize: 20 }}><MaterialCommunityIcons
               name="bank-outline"
               size={46}
-              color={COLORS.green}
+              color={COLORS.black}
               style={styles.cardCornerImage}
             /></Text>
           </View>

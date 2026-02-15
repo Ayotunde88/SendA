@@ -120,7 +120,7 @@ export default function AddMoneyEFTScreen() {
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.label}>Amount (CAD)</Text>
+            <Text style={styles.inputLabel}>Amount (CAD)</Text>
             <View style={styles.amountRow}>
               <Text style={styles.currencySymbol}>$</Text>
               <TextInput
@@ -136,18 +136,18 @@ export default function AddMoneyEFTScreen() {
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Bank Account Details</Text>
 
-            <Text style={styles.label}>Account Holder Name</Text>
+            <Text style={styles.inputLabel}>Account Holder Name</Text>
             <TextInput
-              style={styles.input}
+              style={styles.inputBox}
               placeholder="John Doe"
               autoCapitalize="words"
               value={accountHolderName}
               onChangeText={setAccountHolderName}
             />
 
-            <Text style={styles.label}>Institution Number (3 digits)</Text>
+            <Text style={styles.inputLabel}>Institution Number (3 digits)</Text>
             <TextInput
-              style={styles.input}
+              style={styles.inputBox}
               placeholder="001"
               keyboardType="number-pad"
               value={institutionNumber}
@@ -157,9 +157,9 @@ export default function AddMoneyEFTScreen() {
               maxLength={3}
             />
 
-            <Text style={styles.label}>Transit Number (5 digits)</Text>
+            <Text style={styles.inputLabel}>Transit Number (5 digits)</Text>
             <TextInput
-              style={styles.input}
+              style={styles.inputBox}
               placeholder="12345"
               keyboardType="number-pad"
               value={transitNumber}
@@ -169,9 +169,9 @@ export default function AddMoneyEFTScreen() {
               maxLength={5}
             />
 
-            <Text style={styles.label}>Account Number (5–12 digits)</Text>
+            <Text style={styles.inputLabel}>Account Number (5–12 digits)</Text>
             <TextInput
-              style={styles.input}
+              style={styles.inputBox}
               placeholder="1234567"
               keyboardType="number-pad"
               value={accountNumber}

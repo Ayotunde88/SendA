@@ -632,8 +632,8 @@ export default function WalletScreen() {
   };
 
   const isCredit = (type: string) => {
-    const t = type?.toLowerCase() || "";
-    return t.includes("deposit") || t.includes("credit") || t.includes("inbound") || t.includes("funding");
+    const t = type?.charAt(0).toUpperCase() + type?.slice(1) || "";
+    return t.includes("Deposit") || t.includes("Credit") || t.includes("Inbound") || t.includes("Funding");
   };
 
   const ngnGroups = useMemo(() => {

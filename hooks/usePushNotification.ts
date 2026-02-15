@@ -15,7 +15,7 @@ import {
   addNotificationReceivedListener,
   removeNotificationSubscription,
 } from '../services/pushNotifications';
-import { useNotificationContext } from '@/context/NotificationContext';
+import { useNotificationContext } from '../context/NotificationContext';
 
 export interface PushNotificationState {
   expoPushToken: string | null;
@@ -50,9 +50,18 @@ export function usePushNotifications() {
     });
 
     // Listen for incoming notifications (foreground)
-    notificationListener.current = addNotificationReceivedListener((notification) => {
-      console.log('[PushNotifications] Received:', notification);
+    notificationListener.current = addNotificationReceivedListener(async (notification) => {
       refreshUnreadCount();
+    
+      const unread = notification.request.content.badge ?? 0;
+    
+      if (unread > 0) {
+        await Notifications.setBadgeCountAsync(unread);
+      } else {
+        const current = await Notifications.getBadgeCountAsync();
+        await Notifications.setBadgeCountAsync(current + 1);
+      }
+    
       setNotification(notification);
     });
 
@@ -80,7 +89,7 @@ export function usePushNotifications() {
         removeNotificationSubscription(responseListener.current);
       }
     };
-    }, [router, refreshUnreadCount]);
+  }, [router]);
 
   return {
     expoPushToken,

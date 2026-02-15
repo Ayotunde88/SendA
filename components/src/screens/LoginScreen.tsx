@@ -8,6 +8,9 @@ import { styles } from "../../../theme/styles";
 import { COLORS } from "../../../theme/colors";
 import { api, checkPhoneExists, login } from "../../../api/config";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as LocalAuthentication from "expo-local-authentication";
+import { Ionicons } from "@expo/vector-icons";
+
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -17,6 +20,8 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [bioAvailable, setBioAvailable] = useState(false);
+  const [bioType, setBioType] = useState<string | null>(null);
   const [suspendedModalVisible, setSuspendedModalVisible] = useState(false);
 
   const canLogin = useMemo(() => {
@@ -79,7 +84,30 @@ export default function LoginScreen() {
       setLoading(false);
     }
   };
+  /* ---------------- BIOMETRIC LOGIN ---------------- */
 
+  const handleBiometricLogin = async () => {
+    try {
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: `Login with ${bioType}`,
+        fallbackLabel: "Use password",
+      });
+
+      if (!result.success) return;
+
+      const savedPhone = await AsyncStorage.getItem("user_phone");
+      const savedToken = await AsyncStorage.getItem("auth_token");
+
+      if (!savedPhone || !savedToken) {
+        Alert.alert("Session expired. Please login with password.");
+        return;
+      }
+
+      router.replace("/(tabs)");
+    } catch {
+      Alert.alert("Biometric authentication failed");
+    }
+  };
   return (
     <ScreenShell>
       {/* Suspended Account Modal */}
@@ -188,6 +216,34 @@ export default function LoginScreen() {
           <Text style={styles.recoverLink}>Recover your account</Text>
         </Pressable>
       </View>
+
+      {/* Biometric Option */}
+      {bioAvailable && (
+        <Pressable
+          onPress={handleBiometricLogin}
+          style={{
+            marginTop: 18,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Ionicons
+            name="finger-print-outline"
+            size={20}
+            color={COLORS.primary}
+          />
+          <Text
+            style={{
+              marginLeft: 8,
+              color: COLORS.primary,
+              fontWeight: "700",
+            }}
+          >
+            Login with {bioType}
+          </Text>
+        </Pressable>
+      )}
 
       <View style={{ flex: 1 }} />
 

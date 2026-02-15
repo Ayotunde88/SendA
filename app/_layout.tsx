@@ -4,12 +4,13 @@ import { COLORS } from "../theme/colors";
 import { useFonts, Inter_400Regular, Inter_600SemiBold } from "@expo-google-fonts/inter";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NotificationProvider } from "../context/NotificationContext";
+import usePushNotifications from "@/hooks/usePushNotification";
 
 function RootLayoutContent() {
   const router = useRouter();
   const segments = useSegments();
   const [authChecked, setAuthChecked] = useState(false);
-
+  usePushNotifications();
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
     Inter_600SemiBold,
@@ -90,6 +91,7 @@ function RootLayoutContent() {
       <Stack.Screen name="accountlimit" options={{ title: "Account Limits" }} />
       <Stack.Screen name="security-privacy" options={{ title: "Security and Privacy" }} />
       <Stack.Screen name="support" options={{ title: "Support" }} />
+      <Stack.Screen name="chatsupport" options={{ title: "Chat Support" }} />
       <Stack.Screen name="setpin" options={{ title: "Set Transaction PIN" }} />
       <Stack.Screen name="get-help" options={{ title: "Get Help" }} />
       <Stack.Screen name="protectpassword" options={{ title: "Protect Password" }} />

@@ -1622,7 +1622,7 @@ export default function HomeScreen() {
                         <CountryFlag currencyCode={x.to} size="md" style={{ marginLeft: -8 }} />
                       </View>
 
-                      <View>
+                      <View >
                         <Text style={styles.fxPair}>
                           {x.from} → {x.to}
                         </Text>
@@ -1725,7 +1725,7 @@ export default function HomeScreen() {
                 }}
               >
                 <View style={styles.sheetRowLeft}>
-                  <CountryFlag currencyCode={a.currencyCode} size="lg" />
+                  <CountryFlag currencyCode={a.currencyCode} size="md" />
                   <View>
                     <Text style={styles.sheetRowTitle}>{a.currencyCode}</Text>
                     {/* <Text style={styles.sheetRowSub}>{a.currencyCode}</Text> */}
