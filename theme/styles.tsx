@@ -928,7 +928,7 @@ authGreenLink: {
 shell: {
   flex: 1,
   backgroundColor: "#F6F2EE",
-  paddingHorizontal: 18,
+  paddingHorizontal: 0,
   paddingTop: 14,
 },
 
